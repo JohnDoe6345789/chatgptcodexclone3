@@ -62,6 +62,7 @@ authors = [{ name = "Local User" }]
 requires-python = ">=3.10"
 dependencies = [
     "PyQt6>=6.4.0",
+    "PyYAML>=6.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -196,7 +197,18 @@ import os
 import logging
 from dataclasses import dataclass
 
+from . import settings
+
 logger = logging.getLogger(__name__)
+
+DEFAULT_BASE_URL = "http://localhost:1234"
+DEFAULT_MODEL = "local-coder"
+DEFAULT_SYSTEM_PROMPT = (
+    "You are a helpful coding assistant. Focus on code, "
+    "be concise, and always provide complete examples."
+)
+DEFAULT_TEMPERATURE = 0.2
+DEFAULT_MAX_TOKENS = 2048
 
 
 @dataclass
@@ -219,20 +231,18 @@ def _get_env(name: str, default: str) -> str:
 
 
 def load_config() -> Config:
-    logger.info("Loading configuration from environment")
+    logger.info("Loading configuration (env vars > saved settings > defaults)")
     
-    base_url = _get_env("CODEX_BASE_URL", "http://localhost:1234")
-    api_key = os.getenv("CODEX_API_KEY")
-    model = _get_env("CODEX_MODEL", "local-coder")
-    system_prompt = _get_env(
-        "CODEX_SYSTEM_PROMPT",
-        (
-            "You are a helpful coding assistant. Focus on code, "
-            "be concise, and always provide complete examples."
-        ),
-    )
-    temperature_str = _get_env("CODEX_TEMPERATURE", "0.2")
-    max_tokens_str = _get_env("CODEX_MAX_TOKENS", "2048")
+    saved_settings = settings.load_settings()
+    logger.debug(f"Loaded {len(saved_settings)} saved settings")
+    
+    base_url = _get_env("CODEX_BASE_URL", saved_settings.get("base_url", DEFAULT_BASE_URL))
+    api_key = os.getenv("CODEX_API_KEY") or saved_settings.get("api_key")
+    model = _get_env("CODEX_MODEL", saved_settings.get("model", DEFAULT_MODEL))
+    system_prompt = _get_env("CODEX_SYSTEM_PROMPT", saved_settings.get("system_prompt", DEFAULT_SYSTEM_PROMPT))
+    
+    temperature_str = _get_env("CODEX_TEMPERATURE", str(saved_settings.get("temperature", DEFAULT_TEMPERATURE)))
+    max_tokens_str = _get_env("CODEX_MAX_TOKENS", str(saved_settings.get("max_tokens", DEFAULT_MAX_TOKENS)))
     
     temperature = float(temperature_str)
     max_tokens = int(max_tokens_str)
@@ -250,6 +260,20 @@ def load_config() -> Config:
                 f"temperature={temperature}, max_tokens={max_tokens}")
     
     return config
+
+
+def save_config(config: Config) -> None:
+    """Save configuration to YAML file."""
+    saved_settings_dict = {
+        "base_url": config.base_url,
+        "api_key": config.api_key,
+        "model": config.model,
+        "system_prompt": config.system_prompt,
+        "temperature": config.temperature,
+        "max_tokens": config.max_tokens,
+    }
+    settings.save_settings(saved_settings_dict)
+    logger.info("Configuration saved")
 '''
 
 def generate_codex_clone_logging_utils():
@@ -306,6 +330,87 @@ def setup_logging(log_path: Path | None = None, level: int = logging.DEBUG) -> N
     root_logger.info("Logging initialized")
     root_logger.info(f"Log file: {log_path}")
     root_logger.info("=" * 80)
+'''
+
+def generate_codex_clone_settings():
+    """codex_clone/settings.py"""
+    return '''from __future__ import annotations
+
+import os
+import logging
+from pathlib import Path
+from typing import Any
+
+try:
+    import yaml
+except ImportError:
+    yaml = None
+
+logger = logging.getLogger(__name__)
+
+
+def get_settings_dir() -> Path:
+    """Get platform-specific app data directory."""
+    if os.name == "nt":
+        appdata = os.getenv("APPDATA")
+        if not appdata:
+            appdata = Path.home() / "AppData" / "Roaming"
+        else:
+            appdata = Path(appdata)
+    else:
+        xdg_config = os.getenv("XDG_CONFIG_HOME")
+        if xdg_config:
+            appdata = Path(xdg_config)
+        else:
+            appdata = Path.home() / ".config"
+    
+    settings_dir = appdata / "codex-portable"
+    logger.debug(f"Settings directory: {settings_dir}")
+    return settings_dir
+
+
+def get_settings_file() -> Path:
+    """Get path to settings YAML file."""
+    return get_settings_dir() / "settings.yaml"
+
+
+def load_settings() -> dict[str, Any]:
+    """Load settings from YAML file, returning empty dict if file doesn't exist."""
+    settings_file = get_settings_file()
+    
+    if not settings_file.exists():
+        logger.debug(f"Settings file not found: {settings_file}")
+        return {}
+    
+    if yaml is None:
+        logger.warning("PyYAML not available, cannot load settings file")
+        return {}
+    
+    try:
+        with open(settings_file, "r", encoding="utf-8") as f:
+            settings = yaml.safe_load(f) or {}
+        logger.info(f"Settings loaded from {settings_file}")
+        return settings
+    except Exception as exc:
+        logger.error(f"Failed to load settings from {settings_file}: {exc}")
+        return {}
+
+
+def save_settings(settings: dict[str, Any]) -> None:
+    """Save settings to YAML file."""
+    if yaml is None:
+        logger.warning("PyYAML not available, cannot save settings")
+        return
+    
+    settings_file = get_settings_file()
+    settings_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        with open(settings_file, "w", encoding="utf-8") as f:
+            yaml.safe_dump(settings, f, default_flow_style=False, sort_keys=False)
+        logger.info(f"Settings saved to {settings_file}")
+    except Exception as exc:
+        logger.error(f"Failed to save settings to {settings_file}: {exc}")
 '''
 
 def generate_codex_clone_api():
@@ -1197,8 +1302,11 @@ try:
         QWidget,
         QVBoxLayout,
         QHBoxLayout,
+        QFormLayout,
         QTextEdit,
         QLineEdit,
+        QSpinBox,
+        QDoubleSpinBox,
         QPushButton,
         QLabel,
         QTabWidget,
@@ -1502,6 +1610,153 @@ class CodexWindow(QMainWindow):
         output_group.setLayout(output_layout)
         layout.addWidget(output_group)
         
+        config_group = QGroupBox("Configuration Settings")
+        config_group.setStyleSheet("""
+            QGroupBox {
+                font-size: 14px;
+                font-weight: bold;
+                color: #ffffff;
+                border: 2px solid #5865f2;
+                border-radius: 6px;
+                margin-top: 12px;
+                padding-top: 12px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
+        config_layout = QVBoxLayout()
+        
+        form_layout = QFormLayout()
+        form_layout.setSpacing(10)
+        
+        self._base_url_input = QLineEdit()
+        self._base_url_input.setStyleSheet("""
+            QLineEdit {
+                background: #40444b;
+                color: #dcddde;
+                border: 1px solid #23272a;
+                border-radius: 4px;
+                padding: 8px;
+                font-size: 12px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #5865f2;
+            }
+        """)
+        form_layout.addRow("Base URL:", self._base_url_input)
+        
+        self._api_key_input = QLineEdit()
+        self._api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self._api_key_input.setStyleSheet("""
+            QLineEdit {
+                background: #40444b;
+                color: #dcddde;
+                border: 1px solid #23272a;
+                border-radius: 4px;
+                padding: 8px;
+                font-size: 12px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #5865f2;
+            }
+        """)
+        form_layout.addRow("API Key:", self._api_key_input)
+        
+        self._model_input = QLineEdit()
+        self._model_input.setStyleSheet("""
+            QLineEdit {
+                background: #40444b;
+                color: #dcddde;
+                border: 1px solid #23272a;
+                border-radius: 4px;
+                padding: 8px;
+                font-size: 12px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #5865f2;
+            }
+        """)
+        form_layout.addRow("Model:", self._model_input)
+        
+        temp_layout = QHBoxLayout()
+        self._temperature_input = QDoubleSpinBox()
+        self._temperature_input.setMinimum(0.0)
+        self._temperature_input.setMaximum(2.0)
+        self._temperature_input.setSingleStep(0.1)
+        self._temperature_input.setStyleSheet("""
+            QDoubleSpinBox {
+                background: #40444b;
+                color: #dcddde;
+                border: 1px solid #23272a;
+                border-radius: 4px;
+                padding: 8px;
+                font-size: 12px;
+            }
+        """)
+        temp_layout.addWidget(self._temperature_input)
+        temp_layout.addStretch()
+        form_layout.addRow("Temperature (0.0-2.0):", temp_layout)
+        
+        tokens_layout = QHBoxLayout()
+        self._max_tokens_input = QSpinBox()
+        self._max_tokens_input.setMinimum(1)
+        self._max_tokens_input.setMaximum(32768)
+        self._max_tokens_input.setSingleStep(256)
+        self._max_tokens_input.setStyleSheet("""
+            QSpinBox {
+                background: #40444b;
+                color: #dcddde;
+                border: 1px solid #23272a;
+                border-radius: 4px;
+                padding: 8px;
+                font-size: 12px;
+            }
+        """)
+        tokens_layout.addWidget(self._max_tokens_input)
+        tokens_layout.addStretch()
+        form_layout.addRow("Max Tokens:", tokens_layout)
+        
+        self._system_prompt_input = QTextEdit()
+        self._system_prompt_input.setMinimumHeight(80)
+        self._system_prompt_input.setStyleSheet("""
+            QTextEdit {
+                background: #40444b;
+                color: #dcddde;
+                border: 1px solid #23272a;
+                border-radius: 4px;
+                padding: 8px;
+                font-size: 12px;
+            }
+        """)
+        form_layout.addRow("System Prompt:", self._system_prompt_input)
+        
+        config_layout.addLayout(form_layout)
+        
+        btn_layout = QHBoxLayout()
+        
+        load_btn = QPushButton("↻ Load Defaults")
+        load_btn.clicked.connect(self._on_load_defaults)
+        load_btn.setStyleSheet(self._get_button_style("#5865f2"))
+        load_btn.setMinimumHeight(35)
+        btn_layout.addWidget(load_btn)
+        
+        save_btn = QPushButton("💾 Save Settings")
+        save_btn.clicked.connect(self._on_save_settings)
+        save_btn.setStyleSheet(self._get_button_style("#43b581"))
+        save_btn.setMinimumHeight(35)
+        btn_layout.addWidget(save_btn)
+        
+        config_layout.addLayout(btn_layout)
+        config_group.setLayout(config_layout)
+        layout.addWidget(config_group)
+        
+        layout.addStretch()
+        
+        self._load_settings_to_ui()
+        
         return tab
     
     def _create_chat_tab(self) -> QWidget:
@@ -1632,6 +1887,49 @@ class CodexWindow(QMainWindow):
     def _update_status_bar(self) -> None:
         status_text = f"Backend: {self._backend_status} | Connection: {self._connection_status}"
         self._status_bar.showMessage(status_text)
+    
+    def _load_settings_to_ui(self) -> None:
+        from codex_clone.config import load_config, DEFAULT_BASE_URL, DEFAULT_MODEL, DEFAULT_SYSTEM_PROMPT, DEFAULT_TEMPERATURE, DEFAULT_MAX_TOKENS
+        
+        config = load_config()
+        
+        self._base_url_input.setText(config.base_url or DEFAULT_BASE_URL)
+        self._api_key_input.setText(config.api_key or "")
+        self._model_input.setText(config.model or DEFAULT_MODEL)
+        self._temperature_input.setValue(float(config.temperature or DEFAULT_TEMPERATURE))
+        self._max_tokens_input.setValue(int(config.max_tokens or DEFAULT_MAX_TOKENS))
+        self._system_prompt_input.setText(config.system_prompt or DEFAULT_SYSTEM_PROMPT)
+        
+        logger.info("Settings loaded to UI")
+    
+    def _on_load_defaults(self) -> None:
+        from codex_clone.config import DEFAULT_BASE_URL, DEFAULT_MODEL, DEFAULT_SYSTEM_PROMPT, DEFAULT_TEMPERATURE, DEFAULT_MAX_TOKENS
+        
+        self._base_url_input.setText(DEFAULT_BASE_URL)
+        self._api_key_input.setText("")
+        self._model_input.setText(DEFAULT_MODEL)
+        self._temperature_input.setValue(DEFAULT_TEMPERATURE)
+        self._max_tokens_input.setValue(DEFAULT_MAX_TOKENS)
+        self._system_prompt_input.setText(DEFAULT_SYSTEM_PROMPT)
+        
+        self._append_chat_output("[System] Default settings loaded\\n", "#faa61a")
+        logger.info("Default settings loaded")
+    
+    def _on_save_settings(self) -> None:
+        from codex_clone.config import Config, save_config
+        
+        config = Config(
+            base_url=self._base_url_input.text() or "http://localhost:1234",
+            api_key=self._api_key_input.text() or None,
+            model=self._model_input.text() or "local-coder",
+            system_prompt=self._system_prompt_input.toPlainText(),
+            temperature=float(self._temperature_input.value()),
+            max_tokens=int(self._max_tokens_input.value()),
+        )
+        
+        save_config(config)
+        self._append_chat_output("[System] Settings saved successfully\\n", "#43b581")
+        logger.info("Settings saved")
     
     def _on_connect(self) -> None:
         logger.info("User requested to connect to backend")
@@ -2051,6 +2349,7 @@ def main() -> int:
         ("codex_clone/__init__.py", generate_codex_clone_init),
         ("codex_clone/config.py", generate_codex_clone_config),
         ("codex_clone/logging_utils.py", generate_codex_clone_logging_utils),
+        ("codex_clone/settings.py", generate_codex_clone_settings),
         ("codex_clone/api.py", generate_codex_clone_api),
         ("codex_clone/backend_helper.py", generate_codex_clone_backend_helper),
         ("codex_clone/backend.py", generate_codex_clone_backend),
