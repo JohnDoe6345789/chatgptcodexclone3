@@ -11,20 +11,17 @@ A local AI coding assistant with a modern PyQt6 GUI and automatic model manageme
 
 ## Quick Start
 
-1. **Install Dependencies**:
+1. **Run the Application** (no manual setup needed!):
    ```bash
-   pip install PyQt6>=6.4.0
+   python run.py
    ```
 
-2. **Run the Application**:
-   ```bash
-   python codex_portable.py
-   ```
-
-3. **First Launch**:
-   - The app will automatically install required packages
-   - Download the model (one-time, ~4GB)
-   - Start the local AI backend
+2. **First Launch**:
+   - A setup wizard will appear if dependencies are missing
+   - GUI-based installation on Windows/macOS (ncurses on Linux)
+   - Or automatic pip installation in headless environments
+   - After setup, downloads and configures DeepSeek Coder 6.7B model
+   - Starts the local AI backend
    - This may take 5-10 minutes on first run
 
 ## Usage
@@ -59,6 +56,7 @@ python run_tests.py
 
 ## Architecture
 
+- `run.py` - Bootstrap installer with dependency management
 - `codex_portable.py` - PyQt6 GUI application
 - `codex_clone/socket_backend.py` - Daemon server
 - `codex_clone/backend_helper.py` - Model management and llama.cpp server
