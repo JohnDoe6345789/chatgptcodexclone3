@@ -1269,8 +1269,8 @@ class CodexWindow(QMainWindow):
             }
         """)
         
-        self._tabs.addTab(self._create_ai_agent_tab(), "🤖 AI Agent")
-        self._tabs.addTab(self._create_connection_tab(), "🔌 Backend Connection")
+        self._tabs.addTab(self._create_chat_tab(), "💬 Chat")
+        self._tabs.addTab(self._create_settings_tab(), "⚙️ Settings")
         
         main_layout.addWidget(self._tabs)
         
@@ -1287,7 +1287,7 @@ class CodexWindow(QMainWindow):
         self._update_status_bar()
         self.setStatusBar(self._status_bar)
     
-    def _create_ai_agent_tab(self) -> QWidget:
+    def _create_settings_tab(self) -> QWidget:
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(15, 15, 15, 15)
@@ -1340,50 +1340,6 @@ class CodexWindow(QMainWindow):
         model_group.setLayout(model_layout)
         layout.addWidget(model_group)
         
-        output_group = QGroupBox("Backend Logs")
-        output_group.setStyleSheet("""
-            QGroupBox {
-                font-size: 14px;
-                font-weight: bold;
-                color: #ffffff;
-                border: 2px solid #5865f2;
-                border-radius: 6px;
-                margin-top: 12px;
-                padding-top: 12px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
-            }
-        """)
-        output_layout = QVBoxLayout()
-        
-        self._backend_output = QTextEdit()
-        self._backend_output.setReadOnly(True)
-        self._backend_output.setFont(QFont("Consolas", 10))
-        self._backend_output.setStyleSheet("""
-            QTextEdit {
-                background: #2c2f33;
-                color: #dcddde;
-                border: 1px solid #23272a;
-                border-radius: 4px;
-                padding: 8px;
-            }
-        """)
-        output_layout.addWidget(self._backend_output)
-        
-        output_group.setLayout(output_layout)
-        layout.addWidget(output_group)
-        
-        return tab
-    
-    def _create_connection_tab(self) -> QWidget:
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setContentsMargins(15, 15, 15, 15)
-        layout.setSpacing(10)
-        
         conn_group = QGroupBox("Socket Backend Connection")
         conn_group.setStyleSheet("""
             QGroupBox {
@@ -1425,6 +1381,50 @@ class CodexWindow(QMainWindow):
         conn_layout.addLayout(btn_layout)
         conn_group.setLayout(conn_layout)
         layout.addWidget(conn_group)
+        
+        output_group = QGroupBox("Backend Logs")
+        output_group.setStyleSheet("""
+            QGroupBox {
+                font-size: 14px;
+                font-weight: bold;
+                color: #ffffff;
+                border: 2px solid #5865f2;
+                border-radius: 6px;
+                margin-top: 12px;
+                padding-top: 12px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
+        output_layout = QVBoxLayout()
+        
+        self._backend_output = QTextEdit()
+        self._backend_output.setReadOnly(True)
+        self._backend_output.setFont(QFont("Consolas", 10))
+        self._backend_output.setStyleSheet("""
+            QTextEdit {
+                background: #2c2f33;
+                color: #dcddde;
+                border: 1px solid #23272a;
+                border-radius: 4px;
+                padding: 8px;
+            }
+        """)
+        output_layout.addWidget(self._backend_output)
+        
+        output_group.setLayout(output_layout)
+        layout.addWidget(output_group)
+        
+        return tab
+    
+    def _create_chat_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(10)
         
         chat_group = QGroupBox("AI Chat Interface")
         chat_group.setStyleSheet("""
