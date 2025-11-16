@@ -324,16 +324,49 @@ from .config import Config
 
 logger = logging.getLogger(__name__)
 
+MAX_MESSAGE_LENGTH = 10000
+MAX_MESSAGES = 100
+MAX_RETRIES = 3
+INITIAL_BACKOFF = 1.0
+
 
 class CodexError(RuntimeError):
     """Error raised when the HTTP API fails."""
+
+
+def _validate_messages(messages: Iterable[Dict[str, str]]) -> List[Dict[str, str]]:
+    """Validate and sanitize messages."""
+    msg_list = list(messages)
+    
+    if not msg_list:
+        raise CodexError("Messages list cannot be empty")
+    
+    if len(msg_list) > MAX_MESSAGES:
+        raise CodexError(f"Too many messages: {len(msg_list)} > {MAX_MESSAGES}")
+    
+    for i, msg in enumerate(msg_list):
+        if not isinstance(msg, dict):
+            raise CodexError(f"Message {i} is not a dict")
+        
+        if "role" not in msg or "content" not in msg:
+            raise CodexError(f"Message {i} missing required fields (role, content)")
+        
+        content = msg.get("content", "")
+        if not isinstance(content, str):
+            raise CodexError(f"Message {i} content is not a string")
+        
+        if len(content) > MAX_MESSAGE_LENGTH:
+            raise CodexError(f"Message {i} exceeds max length: {len(content)} > {MAX_MESSAGE_LENGTH}")
+    
+    logger.debug(f"Validated {len(msg_list)} messages")
+    return msg_list
 
 
 def _build_payload(
     messages: Iterable[Dict[str, str]],
     config: Config,
 ) -> bytes:
-    msg_list = list(messages)
+    msg_list = _validate_messages(messages)
     logger.debug(f"Building chat payload with {len(msg_list)} messages")
     
     payload = {
@@ -367,7 +400,7 @@ def _build_request(
     
     if config.api_key:
         request.add_header("Authorization", f"Bearer {config.api_key}")
-        logger.debug(f"Authorization header added (key ending: ***{config.api_key[-4:]})")
+        logger.debug("Authorization header added")
     else:
         logger.debug("No API key configured (local server mode)")
     
@@ -428,20 +461,17 @@ def send_chat(
     messages: List[Dict[str, str]],
     config: Config,
 ) -> str:
-    """Send a chat completion request to the local HTTP backend."""
+    """Send a chat completion request to the local HTTP backend with retry logic."""
     logger.info("=" * 80)
     logger.info(f"Starting chat request with {len(messages)} messages")
     
     start_time = time.time()
+    last_error = None
+    backoff = INITIAL_BACKOFF
     
-    try:
-        payload = _build_payload(messages, config)
-        request = _build_request(payload, config)
-        
-        logger.debug("Opening HTTP connection (timeout: 600 seconds)...")
-        
+    for attempt in range(MAX_RETRIES):
         try:
-            with urllib.request.urlopen(request, timeout=600) as response:
+            with urllib.request.urlopen(request, timeout=120) as response:
                 logger.debug(f"HTTP connection established (status: {response.code})")
                 body = response.read()
                 
@@ -458,16 +488,36 @@ def send_chat(
             except Exception:
                 pass
             
+            if exc.code >= 500 and attempt < MAX_RETRIES - 1:
+                logger.warning(f"Server error (attempt {attempt + 1}), retrying in {backoff:.1f}s...")
+                time.sleep(backoff)
+                backoff *= 2
+                continue
+            
             raise CodexError(f"HTTP {exc.code}: {exc.reason}") from exc
             
         except urllib.error.URLError as exc:
             elapsed = time.time() - start_time
             logger.error(f"URL error after {elapsed:.2f}s: {exc}")
+            
+            if attempt < MAX_RETRIES - 1:
+                logger.warning(f"Connection error (attempt {attempt + 1}), retrying in {backoff:.1f}s...")
+                time.sleep(backoff)
+                backoff *= 2
+                continue
+            
             raise CodexError(f"Connection failed: {exc.reason}") from exc
             
-        except OSError as exc:
+        except (OSError, TimeoutError) as exc:
             elapsed = time.time() - start_time
-            logger.error(f"OS error after {elapsed:.2f}s: {exc}")
+            logger.error(f"Network error after {elapsed:.2f}s: {exc}")
+            
+            if attempt < MAX_RETRIES - 1:
+                logger.warning(f"Network error (attempt {attempt + 1}), retrying in {backoff:.1f}s...")
+                time.sleep(backoff)
+                backoff *= 2
+                continue
+            
             raise CodexError(f"Network error: {exc}") from exc
         
         reply = _parse_response(body)
@@ -478,14 +528,10 @@ def send_chat(
         logger.info("=" * 80)
         
         return reply
-        
-    except CodexError:
-        raise
-        
-    except Exception as exc:
-        elapsed = time.time() - start_time
-        logger.error(f"Unexpected error after {elapsed:.2f}s: {exc}", exc_info=True)
-        raise CodexError(f"Unexpected error: {exc}") from exc
+    
+    if last_error:
+        raise last_error
+    raise CodexError("Unknown error: request failed after retries")
 '''
 
 def generate_codex_clone_backend_helper():
@@ -523,43 +569,54 @@ def models_dir() -> Path:
     return directory
 
 
-def ensure_huggingface_hub() -> None:
+def ensure_huggingface_hub() -> bool:
     logger.info("Checking for huggingface_hub module...")
     
     try:
         import huggingface_hub
         logger.info(f"huggingface_hub is already installed (version: {huggingface_hub.__version__})")
-        return
+        return True
     except ImportError:
         logger.warning("huggingface_hub not found, will install")
     
-    logger.info("=" * 80)
-    logger.info("Installing huggingface_hub>=0.25.0")
-    logger.info("=" * 80)
-    
-    start_time = time.time()
-    result = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "huggingface_hub>=0.25.0"],
-        capture_output=True,
-        text=True,
-    )
-    elapsed = time.time() - start_time
-    
-    logger.info(f"pip install completed in {elapsed:.2f} seconds (return code: {result.returncode})")
-    
-    if result.stdout:
-        for line in result.stdout.split('\\n')[-20:]:
-            if line.strip():
-                logger.debug(f"  {line}")
-    
-    if result.returncode != 0:
-        logger.warning("pip install returned non-zero code")
-        if result.stderr:
-            for line in result.stderr.split('\\n')[-10:]:
+    max_retries = 3
+    for attempt in range(max_retries):
+        logger.info("=" * 80)
+        logger.info(f"Installing huggingface_hub>=0.25.0 (attempt {attempt + 1}/{max_retries})")
+        logger.info("=" * 80)
+        
+        start_time = time.time()
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--upgrade", "huggingface_hub>=0.25.0"],
+            capture_output=True,
+            text=True,
+        )
+        elapsed = time.time() - start_time
+        
+        logger.info(f"pip install completed in {elapsed:.2f} seconds (return code: {result.returncode})")
+        
+        if result.stdout:
+            for line in result.stdout.split('\\n')[-20:]:
                 if line.strip():
-                    logger.error(f"  {line}")
-    else:
-        logger.info("huggingface_hub installation successful")
+                    logger.debug(f"  {line}")
+        
+        if result.returncode == 0:
+            logger.info("huggingface_hub installation successful")
+            return True
+        else:
+            logger.warning(f"pip install returned non-zero code: {result.returncode}")
+            if result.stderr:
+                for line in result.stderr.split('\\n')[-10:]:
+                    if line.strip():
+                        logger.error(f"  {line}")
+            
+            if attempt < max_retries - 1:
+                wait_time = (attempt + 1) * 5
+                logger.info(f"Retrying in {wait_time} seconds...")
+                time.sleep(wait_time)
+    
+    logger.error("Failed to install huggingface_hub after all retries")
+    return False
 
 
 def download_model() -> Path:
@@ -567,7 +624,8 @@ def download_model() -> Path:
     logger.info("MODEL DOWNLOAD PHASE")
     logger.info("=" * 80)
     
-    ensure_huggingface_hub()
+    if not ensure_huggingface_hub():
+        raise RuntimeError("Failed to install huggingface_hub")
     
     from huggingface_hub import hf_hub_download
 
@@ -635,24 +693,42 @@ def ensure_llama_cpp() -> bool:
     logger.info("llama-cpp-python[server] not found, installing...")
     logger.warning("NOTE: This may take several minutes and may require compilation")
     
-    start_time = time.time()
-    result = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "llama-cpp-python[server]"],
-        capture_output=True,
-        text=True,
-    )
-    elapsed = time.time() - start_time
-    
-    logger.info(f"pip install completed in {elapsed:.2f} seconds (return code: {result.returncode})")
-    
-    if result.stdout:
-        for line in result.stdout.split('\\n')[-30:]:
-            if line.strip():
-                logger.debug(f"  {line}")
-    
-    if result.returncode == 0 and have_llama_server():
-        logger.info("llama-cpp-python[server] installation successful")
-        return True
+    max_retries = 2
+    for attempt in range(max_retries):
+        logger.info(f"Installation attempt {attempt + 1}/{max_retries}")
+        
+        start_time = time.time()
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--upgrade", "llama-cpp-python[server]"],
+            capture_output=True,
+            text=True,
+        )
+        elapsed = time.time() - start_time
+        
+        logger.info(f"pip install completed in {elapsed:.2f} seconds (return code: {result.returncode})")
+        
+        if result.stdout:
+            for line in result.stdout.split('\\n')[-30:]:
+                if line.strip():
+                    logger.debug(f"  {line}")
+        
+        if result.returncode == 0:
+            if have_llama_server():
+                logger.info("llama-cpp-python[server] installation successful")
+                return True
+            else:
+                logger.warning("Installation succeeded but module check failed, retrying...")
+        else:
+            logger.warning(f"pip install returned non-zero code: {result.returncode}")
+            if result.stderr:
+                for line in result.stderr.split('\\n')[-20:]:
+                    if line.strip():
+                        logger.error(f"  {line}")
+        
+        if attempt < max_retries - 1:
+            wait_time = 10
+            logger.info(f"Retrying in {wait_time} seconds...")
+            time.sleep(wait_time)
     
     logger.warning("Could not install llama-cpp-python[server]")
     logger.info("You may need to:")
@@ -699,12 +775,25 @@ def run_llama_server(model_path: Path) -> int:
     
     logger.info(f"Server process started with PID: {proc.pid}")
     
-    assert proc.stdout is not None
+    if proc.stdout is None:
+        logger.error("Failed to open stdout from server process")
+        proc.terminate()
+        proc.wait()
+        raise RuntimeError("Could not read server output")
+    
     line_count = 0
+    max_line_buffer = 1000000
+    total_bytes = 0
     
     try:
         for line in proc.stdout:
             line_count += 1
+            total_bytes += len(line.encode('utf-8'))
+            
+            if total_bytes > max_line_buffer:
+                logger.warning(f"Server output exceeded {max_line_buffer} bytes, stopping read")
+                break
+            
             msg = line.rstrip()
             print(f"[llama] {msg}", flush=True)
             
@@ -908,6 +997,7 @@ import json
 import logging
 import threading
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Any
 
 from .backend import Backend
@@ -918,6 +1008,7 @@ logger = logging.getLogger(__name__)
 
 HOST: str = "127.0.0.1"
 PORT: int = 9876
+MAX_WORKERS: int = 10
 
 
 class SocketBackendServer:
@@ -927,8 +1018,9 @@ class SocketBackendServer:
         self._backend = Backend()
         self._config = load_config()
         self._shutdown_flag = False
+        self._executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
         
-        logger.info(f"SocketBackendServer initialized (host={host}, port={port})")
+        logger.info(f"SocketBackendServer initialized (host={host}, port={port}, max_workers={MAX_WORKERS})")
     
     def _request_shutdown(self) -> None:
         logger.info("Shutdown requested by client")
@@ -940,37 +1032,53 @@ class SocketBackendServer:
         logger.info("=" * 80)
         logger.info(f"Binding to {self._host}:{self._port}")
         
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            sock.bind((self._host, self._port))
-            sock.listen(5)
-            
-            logger.info(f"Listening on {self._host}:{self._port}")
-            logger.info("Waiting for connections...")
-            
-            while not self._shutdown_flag:
-                sock.settimeout(1.0)
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                sock.bind((self._host, self._port))
+                sock.listen(5)
                 
-                try:
-                    conn, addr = sock.accept()
-                    logger.info(f"Connection received from {addr}")
+                logger.info(f"Listening on {self._host}:{self._port}")
+                logger.info("Waiting for connections...")
+                
+                while not self._shutdown_flag:
+                    sock.settimeout(1.0)
                     
-                    client_thread = threading.Thread(
-                        target=self._handle_client,
-                        args=(conn, addr),
-                        daemon=True,
-                    )
-                    client_thread.start()
-                    
-                except socket.timeout:
-                    continue
-                except Exception as exc:
-                    logger.error(f"Error accepting connection: {exc}", exc_info=True)
-                    break
-        
-        logger.info("=" * 80)
-        logger.info("SOCKET BACKEND SERVER SHUTTING DOWN")
-        logger.info("=" * 80)
+                    try:
+                        conn, addr = sock.accept()
+                        logger.info(f"Connection received from {addr}")
+                        
+                        self._executor.submit(self._handle_client, conn, addr)
+                        
+                    except socket.timeout:
+                        continue
+                    except Exception as exc:
+                        logger.error(f"Error accepting connection: {exc}", exc_info=True)
+                        break
+        finally:
+            logger.info("Shutting down thread pool executor...")
+            self._executor.shutdown(wait=True)
+            logger.info("=" * 80)
+            logger.info("SOCKET BACKEND SERVER SHUTTING DOWN")
+            logger.info("=" * 80)
+    
+    def _handle_chat(self, messages: list, req_id: str, client_id: str, send: Callable) -> None:
+        try:
+            reply = send_chat(messages, self._config)
+            send({
+                "type": "chat_reply",
+                "id": req_id,
+                "ok": True,
+                "content": reply,
+            })
+        except CodexError as exc:
+            logger.error(f"[Client {client_id}] Chat error: {exc}")
+            send({
+                "type": "chat_reply",
+                "id": req_id,
+                "ok": False,
+                "error": str(exc),
+            })
     
     def _handle_client(self, conn: socket.socket, addr: tuple[str, int]) -> None:
         client_id = f"{addr[0]}:{addr[1]}"
@@ -1020,17 +1128,11 @@ class SocketBackendServer:
                         send({"type": "pong"})
                         
                     elif mtype == "start_backend":
-                        def start_worker():
-                            self._backend.start(log_callback)
-                        
-                        threading.Thread(target=start_worker, daemon=True).start()
+                        self._executor.submit(self._backend.start, log_callback)
                         send({"type": "start_backend_ack"})
                         
                     elif mtype == "stop_backend":
-                        def stop_worker():
-                            self._backend.stop(log_callback)
-                        
-                        threading.Thread(target=stop_worker, daemon=True).start()
+                        self._executor.submit(self._backend.stop, log_callback)
                         send({"type": "stop_backend_ack"})
                         
                     elif mtype == "status":
@@ -1041,26 +1143,8 @@ class SocketBackendServer:
                         messages = msg.get("messages") or []
                         req_id = msg.get("id", "")
                         logger.info(f"[Client {client_id}] Chat request {req_id} ({len(messages)} messages)")
-
-                        def chat_worker() -> None:
-                            try:
-                                reply = send_chat(messages, self._config)
-                                send({
-                                    "type": "chat_reply",
-                                    "id": req_id,
-                                    "ok": True,
-                                    "content": reply,
-                                })
-                            except CodexError as exc:
-                                logger.error(f"[Client {client_id}] Chat error: {exc}")
-                                send({
-                                    "type": "chat_reply",
-                                    "id": req_id,
-                                    "ok": False,
-                                    "error": str(exc),
-                                })
-
-                        threading.Thread(target=chat_worker, daemon=True).start()
+                        
+                        self._executor.submit(self._handle_chat, messages, req_id, client_id, send)
                         
                     elif mtype == "shutdown":
                         logger.info(f"[Client {client_id}] Shutdown requested")
@@ -1517,10 +1601,22 @@ class CodexWindow(QMainWindow):
         """
     
     def _lighten_color(self, hex_color: str) -> str:
-        return hex_color
+        try:
+            hex_color = hex_color.lstrip('#')
+            rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+            rgb = tuple(min(int(c * 1.2), 255) for c in rgb)
+            return f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
+        except Exception:
+            return hex_color
     
     def _darken_color(self, hex_color: str) -> str:
-        return hex_color
+        try:
+            hex_color = hex_color.lstrip('#')
+            rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+            rgb = tuple(max(int(c * 0.8), 0) for c in rgb)
+            return f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
+        except Exception:
+            return hex_color
     
     def _apply_dark_theme(self) -> None:
         self.setStyleSheet("""
@@ -1678,11 +1774,21 @@ class CodexWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         logger.info("Window closing, shutting down client...")
         
-        if self._client:
-            self._client.stop()
-            self._client.wait(3000)
-        
-        event.accept()
+        try:
+            if self._client:
+                logger.info("Stopping socket client...")
+                self._client.stop()
+                
+                if not self._client.wait(5000):
+                    logger.warning("Socket client did not stop within 5 seconds")
+                
+                logger.info("Socket client stopped successfully")
+        except Exception as exc:
+            logger.error(f"Error during client shutdown: {exc}", exc_info=True)
+        finally:
+            self._client = None
+            event.accept()
+            logger.info("Window closed")
 
 
 def main() -> int:
@@ -1725,19 +1831,132 @@ def generate_test_config():
 import unittest
 import os
 
-from codex_clone.config import load_config
+from codex_clone.config import load_config, Config
 
 
 class TestConfig(unittest.TestCase):
+    def setUp(self):
+        self.original_env = os.environ.copy()
+    
+    def tearDown(self):
+        os.environ.clear()
+        os.environ.update(self.original_env)
+    
     def test_load_default_config(self):
         """Test loading configuration with defaults."""
+        for key in ['CODEX_BASE_URL', 'CODEX_MODEL', 'CODEX_TEMPERATURE', 'CODEX_MAX_TOKENS']:
+            if key in os.environ:
+                del os.environ[key]
+        
         config = load_config()
         
         self.assertIsNotNone(config)
-        self.assertEqual(config.base_url, os.getenv("CODEX_BASE_URL", "http://localhost:1234"))
-        self.assertEqual(config.model, os.getenv("CODEX_MODEL", "local-coder"))
-        self.assertEqual(config.temperature, float(os.getenv("CODEX_TEMPERATURE", "0.2")))
-        self.assertEqual(config.max_tokens, int(os.getenv("CODEX_MAX_TOKENS", "2048")))
+        self.assertEqual(config.base_url, "http://localhost:1234")
+        self.assertEqual(config.model, "local-coder")
+        self.assertEqual(config.temperature, 0.2)
+        self.assertEqual(config.max_tokens, 2048)
+    
+    def test_load_custom_config(self):
+        """Test loading configuration with custom environment variables."""
+        os.environ['CODEX_BASE_URL'] = 'http://example.com:5000'
+        os.environ['CODEX_MODEL'] = 'custom-model'
+        os.environ['CODEX_TEMPERATURE'] = '0.5'
+        os.environ['CODEX_MAX_TOKENS'] = '4096'
+        
+        config = load_config()
+        
+        self.assertEqual(config.base_url, 'http://example.com:5000')
+        self.assertEqual(config.model, 'custom-model')
+        self.assertEqual(config.temperature, 0.5)
+        self.assertEqual(config.max_tokens, 4096)
+    
+    def test_api_key_optional(self):
+        """Test that API key is optional."""
+        if 'CODEX_API_KEY' in os.environ:
+            del os.environ['CODEX_API_KEY']
+        
+        config = load_config()
+        self.assertIsNone(config.api_key)
+    
+    def test_config_dataclass(self):
+        """Test Config dataclass."""
+        cfg = Config(
+            base_url="http://localhost:1234",
+            api_key=None,
+            model="test-model",
+            system_prompt="Test prompt",
+            temperature=0.3,
+            max_tokens=1024
+        )
+        
+        self.assertEqual(cfg.base_url, "http://localhost:1234")
+        self.assertIsNone(cfg.api_key)
+        self.assertEqual(cfg.model, "test-model")
+        self.assertEqual(cfg.system_prompt, "Test prompt")
+        self.assertEqual(cfg.temperature, 0.3)
+        self.assertEqual(cfg.max_tokens, 1024)
+
+
+if __name__ == "__main__":
+    unittest.main()
+'''
+
+def generate_test_api():
+    """tests/test_api.py"""
+    return '''from __future__ import annotations
+
+import unittest
+from codex_clone.api import _validate_messages, CodexError, MAX_MESSAGE_LENGTH, MAX_MESSAGES
+
+
+class TestApiValidation(unittest.TestCase):
+    def test_validate_empty_messages(self):
+        """Test validation rejects empty messages."""
+        with self.assertRaises(CodexError):
+            _validate_messages([])
+    
+    def test_validate_too_many_messages(self):
+        """Test validation rejects too many messages."""
+        messages = [
+            {"role": "user", "content": f"msg {i}"}
+            for i in range(MAX_MESSAGES + 1)
+        ]
+        with self.assertRaises(CodexError):
+            _validate_messages(messages)
+    
+    def test_validate_missing_fields(self):
+        """Test validation rejects messages with missing fields."""
+        with self.assertRaises(CodexError):
+            _validate_messages([{"role": "user"}])
+        
+        with self.assertRaises(CodexError):
+            _validate_messages([{"content": "test"}])
+    
+    def test_validate_non_string_content(self):
+        """Test validation rejects non-string content."""
+        with self.assertRaises(CodexError):
+            _validate_messages([{"role": "user", "content": 123}])
+    
+    def test_validate_oversized_message(self):
+        """Test validation rejects oversized messages."""
+        content = "x" * (MAX_MESSAGE_LENGTH + 1)
+        with self.assertRaises(CodexError):
+            _validate_messages([{"role": "user", "content": content}])
+    
+    def test_validate_valid_messages(self):
+        """Test validation accepts valid messages."""
+        messages = [
+            {"role": "system", "content": "You are helpful"},
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi there!"}
+        ]
+        result = _validate_messages(messages)
+        self.assertEqual(len(result), 3)
+    
+    def test_validate_not_dict(self):
+        """Test validation rejects non-dict messages."""
+        with self.assertRaises(CodexError):
+            _validate_messages(["not a dict"])
 
 
 if __name__ == "__main__":
@@ -1839,6 +2058,7 @@ def main() -> int:
         ("codex_portable.py", generate_codex_portable),
         ("tests/__init__.py", generate_tests_init),
         ("tests/test_config.py", generate_test_config),
+        ("tests/test_api.py", generate_test_api),
     ]
     
     successful = 0
