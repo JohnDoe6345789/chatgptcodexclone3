@@ -1117,9 +1117,12 @@ try:
         QLineEdit,
         QPushButton,
         QLabel,
+        QTabWidget,
+        QStatusBar,
+        QGroupBox,
     )
     from PyQt6.QtCore import QThread, pyqtSignal, Qt
-    from PyQt6.QtGui import QFont, QTextCursor
+    from PyQt6.QtGui import QFont, QTextCursor, QPalette, QColor
 except ImportError:
     print("ERROR: PyQt6 not found. Please install it:")
     print("  pip install PyQt6>=6.4.0")
@@ -1220,12 +1223,14 @@ class CodexWindow(QMainWindow):
         super().__init__()
         self._client: SocketClient | None = None
         self._pending_requests: dict[str, bool] = {}
+        self._backend_status = "Unknown"
+        self._connection_status = "Disconnected"
         
         self.setWindowTitle("Codex Portable Desktop")
-        self.setGeometry(100, 100, 900, 700)
+        self.setGeometry(100, 100, 1100, 800)
         
         self._setup_ui()
-        self._start_socket_client()
+        self._apply_dark_theme()
         
         logger.info("CodexWindow initialized")
     
@@ -1233,44 +1238,322 @@ class CodexWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         
-        layout = QVBoxLayout(central)
+        main_layout = QVBoxLayout(central)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
         
-        self._status_label = QLabel("Status: Initializing...")
-        layout.addWidget(self._status_label)
+        self._tabs = QTabWidget()
+        self._tabs.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid #2c2f33;
+                background: #36393f;
+            }
+            QTabBar::tab {
+                background: #2c2f33;
+                color: #dcddde;
+                padding: 10px 20px;
+                margin-right: 2px;
+                border: 1px solid #23272a;
+                border-bottom: none;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+                font-size: 13px;
+            }
+            QTabBar::tab:selected {
+                background: #36393f;
+                color: #ffffff;
+                border-bottom: 2px solid #5865f2;
+            }
+            QTabBar::tab:hover {
+                background: #3c3f44;
+            }
+        """)
+        
+        self._tabs.addTab(self._create_ai_agent_tab(), "🤖 AI Agent")
+        self._tabs.addTab(self._create_connection_tab(), "🔌 Backend Connection")
+        
+        main_layout.addWidget(self._tabs)
+        
+        self._status_bar = QStatusBar()
+        self._status_bar.setStyleSheet("""
+            QStatusBar {
+                background: #2c2f33;
+                color: #dcddde;
+                border-top: 1px solid #23272a;
+                padding: 4px;
+                font-size: 12px;
+            }
+        """)
+        self._update_status_bar()
+        self.setStatusBar(self._status_bar)
+    
+    def _create_ai_agent_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(10)
+        
+        model_group = QGroupBox("AI Model Management")
+        model_group.setStyleSheet("""
+            QGroupBox {
+                font-size: 14px;
+                font-weight: bold;
+                color: #ffffff;
+                border: 2px solid #5865f2;
+                border-radius: 6px;
+                margin-top: 12px;
+                padding-top: 12px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
+        model_layout = QVBoxLayout()
+        
+        info_label = QLabel("DeepSeek Coder 6.7B (Auto-installed on first start)")
+        info_label.setStyleSheet("color: #b9bbbe; font-size: 12px; padding: 5px;")
+        model_layout.addWidget(info_label)
         
         btn_layout = QHBoxLayout()
         
-        self._start_backend_btn = QPushButton("Start Backend")
+        self._start_backend_btn = QPushButton("▶️ Start AI Backend")
         self._start_backend_btn.clicked.connect(self._on_start_backend)
+        self._start_backend_btn.setStyleSheet(self._get_button_style("#43b581"))
+        self._start_backend_btn.setMinimumHeight(40)
         btn_layout.addWidget(self._start_backend_btn)
         
-        self._stop_backend_btn = QPushButton("Stop Backend")
+        self._stop_backend_btn = QPushButton("⏹️ Stop AI Backend")
         self._stop_backend_btn.clicked.connect(self._on_stop_backend)
+        self._stop_backend_btn.setStyleSheet(self._get_button_style("#f04747"))
+        self._stop_backend_btn.setMinimumHeight(40)
         btn_layout.addWidget(self._stop_backend_btn)
         
-        self._check_status_btn = QPushButton("Check Status")
+        self._check_status_btn = QPushButton("🔍 Check Status")
         self._check_status_btn.clicked.connect(self._on_check_status)
+        self._check_status_btn.setStyleSheet(self._get_button_style("#5865f2"))
+        self._check_status_btn.setMinimumHeight(40)
         btn_layout.addWidget(self._check_status_btn)
         
-        layout.addLayout(btn_layout)
+        model_layout.addLayout(btn_layout)
+        model_group.setLayout(model_layout)
+        layout.addWidget(model_group)
         
-        self._output = QTextEdit()
-        self._output.setReadOnly(True)
-        self._output.setFont(QFont("Consolas", 10))
-        layout.addWidget(self._output)
+        output_group = QGroupBox("Backend Logs")
+        output_group.setStyleSheet("""
+            QGroupBox {
+                font-size: 14px;
+                font-weight: bold;
+                color: #ffffff;
+                border: 2px solid #5865f2;
+                border-radius: 6px;
+                margin-top: 12px;
+                padding-top: 12px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
+        output_layout = QVBoxLayout()
+        
+        self._backend_output = QTextEdit()
+        self._backend_output.setReadOnly(True)
+        self._backend_output.setFont(QFont("Consolas", 10))
+        self._backend_output.setStyleSheet("""
+            QTextEdit {
+                background: #2c2f33;
+                color: #dcddde;
+                border: 1px solid #23272a;
+                border-radius: 4px;
+                padding: 8px;
+            }
+        """)
+        output_layout.addWidget(self._backend_output)
+        
+        output_group.setLayout(output_layout)
+        layout.addWidget(output_group)
+        
+        return tab
+    
+    def _create_connection_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(10)
+        
+        conn_group = QGroupBox("Socket Backend Connection")
+        conn_group.setStyleSheet("""
+            QGroupBox {
+                font-size: 14px;
+                font-weight: bold;
+                color: #ffffff;
+                border: 2px solid #5865f2;
+                border-radius: 6px;
+                margin-top: 12px;
+                padding-top: 12px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
+        conn_layout = QVBoxLayout()
+        
+        info_label = QLabel("Connect to socket backend daemon (127.0.0.1:9876)")
+        info_label.setStyleSheet("color: #b9bbbe; font-size: 12px; padding: 5px;")
+        conn_layout.addWidget(info_label)
+        
+        btn_layout = QHBoxLayout()
+        
+        self._connect_btn = QPushButton("🔗 Connect to Backend")
+        self._connect_btn.clicked.connect(self._on_connect)
+        self._connect_btn.setStyleSheet(self._get_button_style("#43b581"))
+        self._connect_btn.setMinimumHeight(40)
+        btn_layout.addWidget(self._connect_btn)
+        
+        self._disconnect_btn = QPushButton("🔌 Disconnect")
+        self._disconnect_btn.clicked.connect(self._on_disconnect)
+        self._disconnect_btn.setStyleSheet(self._get_button_style("#f04747"))
+        self._disconnect_btn.setMinimumHeight(40)
+        self._disconnect_btn.setEnabled(False)
+        btn_layout.addWidget(self._disconnect_btn)
+        
+        conn_layout.addLayout(btn_layout)
+        conn_group.setLayout(conn_layout)
+        layout.addWidget(conn_group)
+        
+        chat_group = QGroupBox("AI Chat Interface")
+        chat_group.setStyleSheet("""
+            QGroupBox {
+                font-size: 14px;
+                font-weight: bold;
+                color: #ffffff;
+                border: 2px solid #5865f2;
+                border-radius: 6px;
+                margin-top: 12px;
+                padding-top: 12px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
+        chat_layout = QVBoxLayout()
+        
+        self._chat_output = QTextEdit()
+        self._chat_output.setReadOnly(True)
+        self._chat_output.setFont(QFont("Consolas", 10))
+        self._chat_output.setStyleSheet("""
+            QTextEdit {
+                background: #2c2f33;
+                color: #dcddde;
+                border: 1px solid #23272a;
+                border-radius: 4px;
+                padding: 8px;
+            }
+        """)
+        chat_layout.addWidget(self._chat_output)
         
         input_layout = QHBoxLayout()
         
-        self._input = QLineEdit()
-        self._input.setPlaceholderText("Type your coding question here...")
-        self._input.returnPressed.connect(self._on_send)
-        input_layout.addWidget(self._input)
+        self._chat_input = QLineEdit()
+        self._chat_input.setPlaceholderText("Type your coding question here...")
+        self._chat_input.returnPressed.connect(self._on_send_chat)
+        self._chat_input.setStyleSheet("""
+            QLineEdit {
+                background: #40444b;
+                color: #dcddde;
+                border: 1px solid #23272a;
+                border-radius: 4px;
+                padding: 10px;
+                font-size: 13px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #5865f2;
+            }
+        """)
+        self._chat_input.setMinimumHeight(40)
+        input_layout.addWidget(self._chat_input)
         
-        send_btn = QPushButton("Send")
-        send_btn.clicked.connect(self._on_send)
+        send_btn = QPushButton("📤 Send")
+        send_btn.clicked.connect(self._on_send_chat)
+        send_btn.setStyleSheet(self._get_button_style("#5865f2"))
+        send_btn.setMinimumHeight(40)
+        send_btn.setMinimumWidth(100)
         input_layout.addWidget(send_btn)
         
-        layout.addLayout(input_layout)
+        chat_layout.addLayout(input_layout)
+        chat_group.setLayout(chat_layout)
+        layout.addWidget(chat_group)
+        
+        return tab
+    
+    def _get_button_style(self, color: str) -> str:
+        return f"""
+            QPushButton {{
+                background: {color};
+                color: #ffffff;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-size: 13px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background: {self._lighten_color(color)};
+            }}
+            QPushButton:pressed {{
+                background: {self._darken_color(color)};
+            }}
+            QPushButton:disabled {{
+                background: #4f545c;
+                color: #72767d;
+            }}
+        """
+    
+    def _lighten_color(self, hex_color: str) -> str:
+        return hex_color
+    
+    def _darken_color(self, hex_color: str) -> str:
+        return hex_color
+    
+    def _apply_dark_theme(self) -> None:
+        self.setStyleSheet("""
+            QMainWindow {
+                background: #36393f;
+            }
+            QWidget {
+                background: #36393f;
+                color: #dcddde;
+            }
+        """)
+    
+    def _update_status_bar(self) -> None:
+        status_text = f"Backend: {self._backend_status} | Connection: {self._connection_status}"
+        self._status_bar.showMessage(status_text)
+    
+    def _on_connect(self) -> None:
+        logger.info("User requested to connect to backend")
+        self._append_chat_output("[System] Connecting to backend daemon...\\n", "#faa61a")
+        self._start_socket_client()
+        self._connect_btn.setEnabled(False)
+    
+    def _on_disconnect(self) -> None:
+        logger.info("User requested to disconnect from backend")
+        if self._client:
+            self._client.stop()
+            self._client.wait(2000)
+            self._client = None
+        self._connection_status = "Disconnected"
+        self._update_status_bar()
+        self._append_chat_output("[System] Disconnected from backend\\n", "#f04747")
+        self._connect_btn.setEnabled(True)
+        self._disconnect_btn.setEnabled(False)
     
     def _start_socket_client(self) -> None:
         logger.info("Starting socket client thread...")
@@ -1281,19 +1564,24 @@ class CodexWindow(QMainWindow):
     
     def _on_connection_status(self, connected: bool, message: str) -> None:
         logger.info(f"Connection status: {message}")
-        self._status_label.setText(f"Status: {message}")
+        self._connection_status = "Connected" if connected else "Disconnected"
+        self._update_status_bar()
         
         if connected:
-            self._append_output("[System] Connected to backend daemon\\n", "green")
+            self._append_chat_output("[System] ✅ Connected to backend daemon\\n", "#43b581")
+            self._disconnect_btn.setEnabled(True)
+            self._connect_btn.setEnabled(False)
         else:
-            self._append_output(f"[System] {message}\\n", "red")
+            self._append_chat_output(f"[System] ❌ {message}\\n", "#f04747")
+            self._disconnect_btn.setEnabled(False)
+            self._connect_btn.setEnabled(True)
     
     def _on_message_received(self, msg: dict) -> None:
         mtype = msg.get("type")
         
         if mtype == "log":
             log_msg = msg.get("message", "")
-            self._append_output(f"[Backend] {log_msg}\\n", "blue")
+            self._append_backend_output(f"[Backend] {log_msg}\\n", "#72767d")
         
         elif mtype == "chat_reply":
             req_id = msg.get("id", "")
@@ -1304,54 +1592,73 @@ class CodexWindow(QMainWindow):
             
             if ok:
                 content = msg.get("content", "")
-                self._append_output(f"\\n[Assistant]\\n{content}\\n\\n", "darkgreen")
+                self._append_chat_output(f"\\n[🤖 Assistant]\\n{content}\\n\\n", "#43b581")
             else:
                 error = msg.get("error", "Unknown error")
-                self._append_output(f"[Error] {error}\\n", "red")
+                self._append_chat_output(f"[❌ Error] {error}\\n", "#f04747")
         
         elif mtype == "status":
             running = msg.get("running", False)
-            status_text = "Running" if running else "Stopped"
-            self._append_output(f"[Backend Status] {status_text}\\n", "blue")
+            self._backend_status = "Running" if running else "Stopped"
+            self._update_status_bar()
+            status_text = "✅ Running" if running else "⏹️ Stopped"
+            self._append_backend_output(f"[Status] Backend is {status_text}\\n", "#5865f2")
     
-    def _append_output(self, text: str, color: str = "black") -> None:
-        cursor = self._output.textCursor()
+    def _append_backend_output(self, text: str, color: str) -> None:
+        cursor = self._backend_output.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
-        
-        self._output.setTextCursor(cursor)
-        self._output.setTextColor(Qt.GlobalColor.__dict__.get(color, Qt.GlobalColor.black))
-        self._output.insertPlainText(text)
-        
+        self._backend_output.setTextCursor(cursor)
+        self._backend_output.setTextColor(QColor(color))
+        self._backend_output.insertPlainText(text)
         cursor.movePosition(QTextCursor.MoveOperation.End)
-        self._output.setTextCursor(cursor)
+        self._backend_output.setTextCursor(cursor)
+    
+    def _append_chat_output(self, text: str, color: str) -> None:
+        cursor = self._chat_output.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        self._chat_output.setTextCursor(cursor)
+        self._chat_output.setTextColor(QColor(color))
+        self._chat_output.insertPlainText(text)
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        self._chat_output.setTextCursor(cursor)
     
     def _on_start_backend(self) -> None:
         logger.info("User requested to start backend")
         if self._client:
             self._client.send_message({"type": "start_backend"})
-            self._append_output("[System] Starting backend...\\n", "blue")
+            self._append_backend_output("[System] ▶️ Starting AI backend...\\n", "#faa61a")
+        else:
+            self._append_backend_output("[Error] Not connected to daemon. Go to Backend Connection tab.\\n", "#f04747")
     
     def _on_stop_backend(self) -> None:
         logger.info("User requested to stop backend")
         if self._client:
             self._client.send_message({"type": "stop_backend"})
-            self._append_output("[System] Stopping backend...\\n", "blue")
+            self._append_backend_output("[System] ⏹️ Stopping AI backend...\\n", "#faa61a")
+        else:
+            self._append_backend_output("[Error] Not connected to daemon. Go to Backend Connection tab.\\n", "#f04747")
     
     def _on_check_status(self) -> None:
         logger.info("User requested backend status check")
         if self._client:
             self._client.send_message({"type": "status"})
+        else:
+            self._append_backend_output("[Error] Not connected to daemon. Go to Backend Connection tab.\\n", "#f04747")
     
-    def _on_send(self) -> None:
-        user_input = self._input.text().strip()
+    def _on_send_chat(self) -> None:
+        user_input = self._chat_input.text().strip()
         
         if not user_input:
             return
         
+        if not self._client:
+            self._append_chat_output("[Error] Not connected to backend. Connect first!\\n", "#f04747")
+            return
+        
         logger.info(f"User sent message: {user_input[:50]}...")
         
-        self._append_output(f"[You] {user_input}\\n", "darkblue")
-        self._input.clear()
+        self._append_chat_output(f"[💬 You] {user_input}\\n", "#5865f2")
+        self._chat_input.clear()
         
         req_id = str(uuid.uuid4())
         self._pending_requests[req_id] = True
@@ -1361,13 +1668,12 @@ class CodexWindow(QMainWindow):
             {"role": "user", "content": user_input}
         ]
         
-        if self._client:
-            self._client.send_message({
-                "type": "chat",
-                "id": req_id,
-                "messages": messages
-            })
-            self._append_output("[System] Processing request...\\n", "gray")
+        self._client.send_message({
+            "type": "chat",
+            "id": req_id,
+            "messages": messages
+        })
+        self._append_chat_output("[⏳ System] Processing request...\\n", "#72767d")
     
     def closeEvent(self, event) -> None:
         logger.info("Window closing, shutting down client...")
