@@ -1,0 +1,1570 @@
+#!/usr/bin/env python3
+"""
+Project structure generator for Codex Portable Desktop.
+Writes the entire multi-file project structure to disk with logging.
+Run: python generate_codex_project.py
+"""
+
+import logging
+import logging.handlers
+from pathlib import Path
+from typing import Callable
+import sys
+
+
+def setup_logging(log_path: Path) -> None:
+    """Configure logging with both file and console handlers."""
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    detailed_formatter = logging.Formatter(
+        fmt='%(asctime)s [%(levelname)8s] %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
+    console_formatter = logging.Formatter(
+        fmt='[%(levelname)s] %(message)s'
+    )
+    
+    file_handler = logging.FileHandler(
+        log_path,
+        mode='w',
+        encoding='utf-8'
+    )
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(detailed_formatter)
+    
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(console_formatter)
+    
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(console_handler)
+    
+    root_logger.info("=" * 80)
+    root_logger.info("Project Generator Started")
+    root_logger.info(f"Log file: {log_path}")
+    root_logger.info("=" * 80)
+
+
+def generate_pyproject_toml():
+    """pyproject.toml"""
+    return '''[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codex-portable-socket-clean"
+version = "1.3.0"
+description = "Codex-style assistant with modern PyQt6 UI, socket daemon, clean shutdown, and logging"
+authors = [{ name = "Local User" }]
+requires-python = ">=3.10"
+dependencies = [
+    "PyQt6>=6.4.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["codex_clone*"]
+'''
+
+def generate_run_tests_py():
+    """run_tests.py"""
+    return '''from __future__ import annotations
+
+import unittest
+
+
+def main() -> int:
+    suite = unittest.defaultTestLoader.discover("tests")
+    runner = unittest.TextTestRunner(verbosity=2)
+    result = runner.run(suite)
+    return 0 if result.wasSuccessful() else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+'''
+
+def generate_run_tests_sh():
+    """run_tests.sh"""
+    return '''#!/usr/bin/env bash
+set -euo pipefail
+python run_tests.py
+'''
+
+def generate_run_tests_bat():
+    """run_tests.bat"""
+    return '''@echo off
+python run_tests.py
+'''
+
+def generate_readme():
+    """README.md"""
+    return '''# Codex Portable Desktop
+
+A local AI coding assistant with a modern PyQt6 GUI and automatic model management.
+
+## Features
+
+- **Automatic Setup**: Downloads and configures DeepSeek Coder 6.7B model
+- **Socket-based Architecture**: Daemon process manages the backend independently
+- **Modern UI**: Clean PyQt6 interface with syntax highlighting
+- **Comprehensive Logging**: All operations logged to `codex.log`
+
+## Quick Start
+
+1. **Install Dependencies**:
+   ```bash
+   pip install PyQt6>=6.4.0
+   ```
+
+2. **Run the Application**:
+   ```bash
+   python codex_portable.py
+   ```
+
+3. **First Launch**:
+   - The app will automatically install required packages
+   - Download the model (one-time, ~4GB)
+   - Start the local AI backend
+   - This may take 5-10 minutes on first run
+
+## Usage
+
+- Type your coding questions in the input field
+- Press Enter or click Send
+- Use "Start Backend" / "Stop Backend" buttons to control the AI server
+- Check `codex.log` for detailed operation logs
+
+## Requirements
+
+- Python 3.10+
+- ~6GB free disk space (for model)
+- 8GB+ RAM recommended
+
+## Configuration
+
+Set environment variables to customize:
+
+```bash
+export CODEX_BASE_URL="http://localhost:1234"
+export CODEX_MODEL="local-coder"
+export CODEX_TEMPERATURE="0.2"
+export CODEX_MAX_TOKENS="2048"
+```
+
+## Testing
+
+```bash
+python run_tests.py
+```
+
+## Architecture
+
+- `codex_portable.py` - PyQt6 GUI application
+- `codex_clone/socket_backend.py` - Daemon server
+- `codex_clone/backend_helper.py` - Model management and llama.cpp server
+- `codex_clone/api.py` - OpenAI-compatible API client
+- `codex_clone/config.py` - Configuration management
+- `codex_clone/logging_utils.py` - Logging utilities
+
+## Troubleshooting
+
+**Backend won't start**: Check `codex.log` for errors. May need to install build tools for llama-cpp-python.
+
+**Model download fails**: Check internet connection. Delete `models/` folder to retry.
+
+**Port 1234 in use**: Change `CODEX_BASE_URL` to use a different port.
+
+## License
+
+MIT License - Free to use and modify.
+'''
+
+def generate_codex_clone_init():
+    """codex_clone/__init__.py"""
+    return '''"""Local ChatGPT/Codex-style coding assistant."""
+'''
+
+def generate_codex_clone_config():
+    """codex_clone/config.py"""
+    return '''from __future__ import annotations
+
+import os
+import logging
+from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class Config:
+    base_url: str
+    api_key: str | None
+    model: str
+    system_prompt: str
+    temperature: float
+    max_tokens: int
+
+
+def _get_env(name: str, default: str) -> str:
+    value = os.getenv(name)
+    if value is None or value.strip() == "":
+        logger.debug(f"Environment variable {name} not set, using default: {default}")
+        return default
+    logger.debug(f"Environment variable {name} set to: {value}")
+    return value
+
+
+def load_config() -> Config:
+    logger.info("Loading configuration from environment")
+    
+    base_url = _get_env("CODEX_BASE_URL", "http://localhost:1234")
+    api_key = os.getenv("CODEX_API_KEY")
+    model = _get_env("CODEX_MODEL", "local-coder")
+    system_prompt = _get_env(
+        "CODEX_SYSTEM_PROMPT",
+        (
+            "You are a helpful coding assistant. Focus on code, "
+            "be concise, and always provide complete examples."
+        ),
+    )
+    temperature_str = _get_env("CODEX_TEMPERATURE", "0.2")
+    max_tokens_str = _get_env("CODEX_MAX_TOKENS", "2048")
+    
+    temperature = float(temperature_str)
+    max_tokens = int(max_tokens_str)
+    
+    config = Config(
+        base_url=base_url,
+        api_key=api_key,
+        model=model,
+        system_prompt=system_prompt,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+    
+    logger.info(f"Configuration loaded: base_url={base_url}, model={model}, "
+                f"temperature={temperature}, max_tokens={max_tokens}")
+    
+    return config
+'''
+
+def generate_codex_clone_logging_utils():
+    """codex_clone/logging_utils.py"""
+    return '''from __future__ import annotations
+
+import logging
+import logging.handlers
+from pathlib import Path
+
+
+def setup_logging(log_path: Path | None = None, level: int = logging.DEBUG) -> None:
+    """Configure logging with both file and console handlers."""
+    if log_path is None:
+        log_path = Path(__file__).resolve().parent.parent / "codex.log"
+    
+    # Ensure log directory exists
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Create formatters
+    detailed_formatter = logging.Formatter(
+        fmt='%(asctime)s [%(levelname)8s] %(name)s:%(lineno)d - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
+    console_formatter = logging.Formatter(
+        fmt='%(asctime)s [%(levelname)s] %(message)s',
+        datefmt='%H:%M:%S'
+    )
+    
+    # File handler with rotation
+    file_handler = logging.handlers.RotatingFileHandler(
+        log_path,
+        maxBytes=10 * 1024 * 1024,  # 10MB
+        backupCount=5,
+        encoding='utf-8'
+    )
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(detailed_formatter)
+    
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(console_formatter)
+    
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(level)
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(console_handler)
+    
+    # Log startup
+    root_logger.info("=" * 80)
+    root_logger.info("Logging initialized")
+    root_logger.info(f"Log file: {log_path}")
+    root_logger.info("=" * 80)
+'''
+
+def generate_codex_clone_api():
+    """codex_clone/api.py"""
+    return '''from __future__ import annotations
+
+from typing import Iterable, List, Dict
+
+import json
+import urllib.request
+import urllib.error
+import time
+import logging
+
+from .config import Config
+
+logger = logging.getLogger(__name__)
+
+
+class CodexError(RuntimeError):
+    """Error raised when the HTTP API fails."""
+
+
+def _build_payload(
+    messages: Iterable[Dict[str, str]],
+    config: Config,
+) -> bytes:
+    msg_list = list(messages)
+    logger.debug(f"Building chat payload with {len(msg_list)} messages")
+    
+    payload = {
+        "model": config.model,
+        "messages": msg_list,
+        "temperature": config.temperature,
+        "max_tokens": config.max_tokens,
+    }
+    
+    logger.debug(f"Model: {config.model}, Temperature: {config.temperature}, "
+                 f"Max tokens: {config.max_tokens}")
+    
+    text = json.dumps(payload)
+    payload_bytes = text.encode("utf-8")
+    
+    logger.debug(f"Payload size: {len(payload_bytes)} bytes")
+    
+    return payload_bytes
+
+
+def _build_request(
+    payload: bytes,
+    config: Config,
+) -> urllib.request.Request:
+    url = config.base_url.rstrip("/") + "/v1/chat/completions"
+    
+    logger.debug(f"Building HTTP POST request to {url}")
+    
+    request = urllib.request.Request(url, data=payload)
+    request.add_header("Content-Type", "application/json")
+    
+    if config.api_key:
+        request.add_header("Authorization", f"Bearer {config.api_key}")
+        logger.debug(f"Authorization header added (key ending: ***{config.api_key[-4:]})")
+    else:
+        logger.debug("No API key configured (local server mode)")
+    
+    return request
+
+
+def _parse_response(data: bytes) -> str:
+    logger.debug(f"Parsing response ({len(data)} bytes)")
+    
+    try:
+        text = data.decode("utf-8")
+        logger.debug(f"Response decoded successfully ({len(text)} characters)")
+        
+    except UnicodeDecodeError as exc:
+        logger.error(f"Failed to decode response as UTF-8: {exc}")
+        raise CodexError("Response is not valid UTF-8") from exc
+    
+    try:
+        obj = json.loads(text)
+        logger.debug("JSON parsed successfully")
+        
+    except json.JSONDecodeError as exc:
+        logger.error(f"Invalid JSON from server: {exc}")
+        logger.debug(f"Response preview: {text[:200]}...")
+        raise CodexError("Invalid JSON from server") from exc
+    
+    if "error" in obj:
+        error_msg = obj["error"]
+        logger.error(f"Server returned error: {error_msg}")
+        raise CodexError(f"Server error: {error_msg}")
+    
+    choices = obj.get("choices") or []
+    logger.debug(f"Response contains {len(choices)} choices")
+    
+    if not choices:
+        logger.error("Response contains no choices")
+        raise CodexError("Response contains no choices")
+    
+    message = choices[0].get("message") or {}
+    content = message.get("content", "")
+    
+    if not isinstance(content, str):
+        logger.error(f"Assistant content is not a string (type: {type(content).__name__})")
+        raise CodexError("Assistant content is not a string")
+    
+    logger.debug(f"Content extracted: {len(content)} characters")
+    
+    if "usage" in obj:
+        usage = obj["usage"]
+        logger.info(f"Token usage: prompt={usage.get('prompt_tokens', '?')}, "
+                   f"completion={usage.get('completion_tokens', '?')}, "
+                   f"total={usage.get('total_tokens', '?')}")
+    
+    return content
+
+
+def send_chat(
+    messages: List[Dict[str, str]],
+    config: Config,
+) -> str:
+    """Send a chat completion request to the local HTTP backend."""
+    logger.info("=" * 80)
+    logger.info(f"Starting chat request with {len(messages)} messages")
+    
+    start_time = time.time()
+    
+    try:
+        payload = _build_payload(messages, config)
+        request = _build_request(payload, config)
+        
+        logger.debug("Opening HTTP connection (timeout: 600 seconds)...")
+        
+        try:
+            with urllib.request.urlopen(request, timeout=600) as response:
+                logger.debug(f"HTTP connection established (status: {response.code})")
+                body = response.read()
+                
+                elapsed = time.time() - start_time
+                logger.info(f"Response received in {elapsed:.2f} seconds")
+                
+        except urllib.error.HTTPError as exc:
+            elapsed = time.time() - start_time
+            logger.error(f"HTTP error after {elapsed:.2f}s: {exc.code} {exc.reason}")
+            
+            try:
+                error_body = exc.read().decode('utf-8')
+                logger.debug(f"Error response body: {error_body}")
+            except Exception:
+                pass
+            
+            raise CodexError(f"HTTP {exc.code}: {exc.reason}") from exc
+            
+        except urllib.error.URLError as exc:
+            elapsed = time.time() - start_time
+            logger.error(f"URL error after {elapsed:.2f}s: {exc}")
+            raise CodexError(f"Connection failed: {exc.reason}") from exc
+            
+        except OSError as exc:
+            elapsed = time.time() - start_time
+            logger.error(f"OS error after {elapsed:.2f}s: {exc}")
+            raise CodexError(f"Network error: {exc}") from exc
+        
+        reply = _parse_response(body)
+        
+        total_elapsed = time.time() - start_time
+        logger.info(f"Chat request completed in {total_elapsed:.2f} seconds")
+        logger.debug(f"Reply preview: {reply[:100]}...")
+        logger.info("=" * 80)
+        
+        return reply
+        
+    except CodexError:
+        raise
+        
+    except Exception as exc:
+        elapsed = time.time() - start_time
+        logger.error(f"Unexpected error after {elapsed:.2f}s: {exc}", exc_info=True)
+        raise CodexError(f"Unexpected error: {exc}") from exc
+'''
+
+def generate_codex_clone_backend_helper():
+    """codex_clone/backend_helper.py"""
+    return '''from __future__ import annotations
+
+import subprocess
+import sys
+import time
+import logging
+from pathlib import Path
+from typing import Final
+
+logger = logging.getLogger(__name__)
+
+HF_REPO: Final[str] = "TheBloke/deepseek-coder-6.7B-instruct-GGUF"
+HF_FILE: Final[str] = "deepseek-coder-6.7b-instruct.Q4_K_M.gguf"
+
+
+def project_root() -> Path:
+    root = Path(__file__).resolve().parent.parent
+    logger.debug(f"Project root: {root}")
+    return root
+
+
+def models_dir() -> Path:
+    directory = project_root() / "models"
+    logger.debug(f"Models directory: {directory}")
+    
+    if not directory.exists():
+        logger.info("Creating models directory...")
+        directory.mkdir(parents=True, exist_ok=True)
+        logger.info("Models directory created")
+    
+    return directory
+
+
+def ensure_huggingface_hub() -> None:
+    logger.info("Checking for huggingface_hub module...")
+    
+    try:
+        import huggingface_hub
+        logger.info(f"huggingface_hub is already installed (version: {huggingface_hub.__version__})")
+        return
+    except ImportError:
+        logger.warning("huggingface_hub not found, will install")
+    
+    logger.info("=" * 80)
+    logger.info("Installing huggingface_hub>=0.25.0")
+    logger.info("=" * 80)
+    
+    start_time = time.time()
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "huggingface_hub>=0.25.0"],
+        capture_output=True,
+        text=True,
+    )
+    elapsed = time.time() - start_time
+    
+    logger.info(f"pip install completed in {elapsed:.2f} seconds (return code: {result.returncode})")
+    
+    if result.stdout:
+        for line in result.stdout.split('\\n')[-20:]:
+            if line.strip():
+                logger.debug(f"  {line}")
+    
+    if result.returncode != 0:
+        logger.warning("pip install returned non-zero code")
+        if result.stderr:
+            for line in result.stderr.split('\\n')[-10:]:
+                if line.strip():
+                    logger.error(f"  {line}")
+    else:
+        logger.info("huggingface_hub installation successful")
+
+
+def download_model() -> Path:
+    logger.info("=" * 80)
+    logger.info("MODEL DOWNLOAD PHASE")
+    logger.info("=" * 80)
+    
+    ensure_huggingface_hub()
+    
+    from huggingface_hub import hf_hub_download
+
+    dest_dir = models_dir()
+    local_path = dest_dir / HF_FILE
+    
+    logger.info(f"Target model file: {local_path}")
+    
+    if local_path.exists():
+        file_size_mb = local_path.stat().st_size / (1024 * 1024)
+        logger.info(f"Model already present: {local_path} ({file_size_mb:.2f} MB)")
+        return local_path
+    
+    logger.info(f"Model not found locally, starting download...")
+    logger.info(f"Repository: {HF_REPO}")
+    logger.info(f"Filename: {HF_FILE}")
+    logger.info("NOTE: First download may take several minutes (model is ~4GB)")
+    
+    start_time = time.time()
+    
+    try:
+        actual = hf_hub_download(
+            repo_id=HF_REPO,
+            filename=HF_FILE,
+            local_dir=str(dest_dir),
+            local_dir_use_symlinks=False,
+        )
+        
+        elapsed = time.time() - start_time
+        local_path = Path(actual)
+        file_size_mb = local_path.stat().st_size / (1024 * 1024)
+        
+        logger.info(f"Download completed in {elapsed:.2f} seconds")
+        logger.info(f"Model saved to: {local_path} ({file_size_mb:.2f} MB)")
+        
+    except Exception as exc:
+        logger.error(f"Model download failed: {exc}", exc_info=True)
+        raise
+    
+    return local_path
+
+
+def have_llama_server() -> bool:
+    logger.debug("Checking for llama_cpp.server module...")
+    
+    try:
+        import llama_cpp.server
+        import llama_cpp
+        logger.info(f"llama-cpp-python is installed (version: {llama_cpp.__version__})")
+        return True
+    except ImportError:
+        logger.debug("llama_cpp.server not found")
+        return False
+
+
+def ensure_llama_cpp() -> bool:
+    logger.info("=" * 80)
+    logger.info("LLAMA-CPP-PYTHON CHECK")
+    logger.info("=" * 80)
+    
+    if have_llama_server():
+        logger.info("llama-cpp-python[server] is already available")
+        return True
+    
+    logger.info("llama-cpp-python[server] not found, installing...")
+    logger.warning("NOTE: This may take several minutes and may require compilation")
+    
+    start_time = time.time()
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "llama-cpp-python[server]"],
+        capture_output=True,
+        text=True,
+    )
+    elapsed = time.time() - start_time
+    
+    logger.info(f"pip install completed in {elapsed:.2f} seconds (return code: {result.returncode})")
+    
+    if result.stdout:
+        for line in result.stdout.split('\\n')[-30:]:
+            if line.strip():
+                logger.debug(f"  {line}")
+    
+    if result.returncode == 0 and have_llama_server():
+        logger.info("llama-cpp-python[server] installation successful")
+        return True
+    
+    logger.warning("Could not install llama-cpp-python[server]")
+    logger.info("You may need to:")
+    logger.info("  1. Install build tools (Visual Studio on Windows, gcc on Linux)")
+    logger.info("  2. Use LM Studio or another OpenAI-compatible backend manually")
+    logger.info("  3. Check your Python version (3.10+ recommended)")
+    return False
+
+
+def run_llama_server(model_path: Path) -> int:
+    logger.info("=" * 80)
+    logger.info("STARTING LLAMA SERVER")
+    logger.info("=" * 80)
+    
+    cmd = [
+        sys.executable,
+        "-m",
+        "llama_cpp.server",
+        "--model",
+        str(model_path),
+        "--model_alias",
+        "local-coder",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "1234",
+        "--n_ctx",
+        "8192",
+    ]
+    
+    logger.info(f"Command: {' '.join(cmd)}")
+    logger.info(f"Model: {model_path}")
+    logger.info("Host: 127.0.0.1:1234")
+    logger.info("Context size: 8192 tokens")
+    logger.info("Starting llama_cpp.server (this may take 30-60 seconds)...")
+    logger.info("=" * 80)
+    
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    
+    logger.info(f"Server process started with PID: {proc.pid}")
+    
+    assert proc.stdout is not None
+    line_count = 0
+    
+    try:
+        for line in proc.stdout:
+            line_count += 1
+            msg = line.rstrip()
+            print(f"[llama] {msg}", flush=True)
+            
+            if line_count % 10 == 0 or any(k in line.lower() for k in ['error', 'warn', 'ready', 'listening']):
+                logger.debug(f"[llama-server] {msg}")
+    
+    except Exception as exc:
+        logger.error(f"Error reading server output: {exc}", exc_info=True)
+    
+    logger.info("=" * 80)
+    logger.info("Server output stream ended, waiting for process exit...")
+    
+    code = proc.wait()
+    
+    logger.info(f"llama_cpp.server exited with code {code} (processed {line_count} output lines)")
+    
+    return code
+
+
+def main() -> int:
+    from .logging_utils import setup_logging
+    setup_logging()
+    
+    logger.info("=" * 80)
+    logger.info("BACKEND HELPER STARTING")
+    logger.info("=" * 80)
+    logger.info(f"Python: {sys.version}")
+    logger.info(f"Executable: {sys.executable}")
+    logger.info(f"PID: {sys.getpid()}")
+    logger.info(f"Working directory: {Path.cwd()}")
+    
+    try:
+        logger.info("Phase 1: Download/verify model...")
+        model_path = download_model()
+        logger.info(f"Phase 1 complete: model at {model_path}")
+        
+    except Exception as exc:
+        logger.critical(f"FATAL: model download failed: {exc}", exc_info=True)
+        return 1
+    
+    try:
+        logger.info("Phase 2: Ensure llama-cpp-python is installed...")
+        if not ensure_llama_cpp():
+            logger.warning("Phase 2 failed: llama-cpp-python not available")
+            logger.info("Exiting without starting backend")
+            return 0
+        logger.info("Phase 2 complete: llama-cpp-python ready")
+        
+    except Exception as exc:
+        logger.error(f"Error in Phase 2: {exc}", exc_info=True)
+        return 1
+    
+    try:
+        logger.info("Phase 3: Start llama.cpp server...")
+        rc = run_llama_server(model_path)
+        logger.info(f"Phase 3 complete: server exited with code {rc}")
+        
+    except Exception as exc:
+        logger.error(f"Error in Phase 3: {exc}", exc_info=True)
+        return 1
+    
+    logger.info("=" * 80)
+    logger.info("BACKEND HELPER SHUTTING DOWN")
+    logger.info("=" * 80)
+    return rc
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+'''
+
+def generate_codex_clone_backend():
+    """codex_clone/backend.py"""
+    return '''from __future__ import annotations
+
+import subprocess
+import sys
+import logging
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+
+class Backend:
+    def __init__(self) -> None:
+        self._proc: subprocess.Popen[str] | None = None
+        logger.debug("Backend instance created")
+    
+    def is_running(self) -> bool:
+        if self._proc is None:
+            return False
+        
+        poll_result = self._proc.poll()
+        running = poll_result is None
+        
+        if not running and poll_result is not None:
+            logger.debug(f"Backend process has exited with code {poll_result}")
+        
+        return running
+    
+    def start(self, log_callback=None) -> None:
+        if self.is_running():
+            logger.warning("Backend already running, ignoring start request")
+            if log_callback:
+                log_callback("Backend is already running")
+            return
+        
+        logger.info("=" * 80)
+        logger.info("STARTING BACKEND")
+        logger.info("=" * 80)
+        
+        if log_callback:
+            log_callback("Starting backend process...")
+        
+        cmd = [
+            sys.executable,
+            "-m",
+            "codex_clone.backend_helper",
+        ]
+        
+        logger.info(f"Command: {' '.join(cmd)}")
+        logger.info(f"Working directory: {Path.cwd()}")
+        
+        try:
+            self._proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+            
+            logger.info(f"Backend process started with PID: {self._proc.pid}")
+            
+            if log_callback:
+                log_callback(f"Backend process started (PID: {self._proc.pid})")
+            
+        except Exception as exc:
+            logger.error(f"Failed to start backend: {exc}", exc_info=True)
+            if log_callback:
+                log_callback(f"ERROR: Failed to start backend: {exc}")
+            raise
+    
+    def stop(self, log_callback=None) -> None:
+        if not self.is_running():
+            logger.info("Backend is not running, nothing to stop")
+            if log_callback:
+                log_callback("Backend is not running")
+            return
+        
+        logger.info("=" * 80)
+        logger.info("STOPPING BACKEND")
+        logger.info("=" * 80)
+        
+        if log_callback:
+            log_callback("Stopping backend process...")
+        
+        assert self._proc is not None
+        pid = self._proc.pid
+        
+        logger.info(f"Terminating process {pid}...")
+        
+        try:
+            self._proc.terminate()
+            
+            logger.info("Waiting for process to exit (timeout: 10 seconds)...")
+            
+            try:
+                exit_code = self._proc.wait(timeout=10)
+                logger.info(f"Process {pid} exited with code {exit_code}")
+                
+                if log_callback:
+                    log_callback(f"Backend stopped (exit code: {exit_code})")
+                
+            except subprocess.TimeoutExpired:
+                logger.warning(f"Process {pid} did not exit after 10 seconds, forcing kill...")
+                self._proc.kill()
+                exit_code = self._proc.wait()
+                logger.info(f"Process {pid} killed (exit code: {exit_code})")
+                
+                if log_callback:
+                    log_callback(f"Backend forcefully stopped (exit code: {exit_code})")
+        
+        except Exception as exc:
+            logger.error(f"Error stopping backend: {exc}", exc_info=True)
+            if log_callback:
+                log_callback(f"ERROR: Failed to stop backend: {exc}")
+            raise
+        
+        finally:
+            self._proc = None
+            logger.info("Backend process reference cleared")
+'''
+
+def generate_codex_clone_socket_backend():
+    """codex_clone/socket_backend.py"""
+    return '''from __future__ import annotations
+
+import socket
+import json
+import logging
+import threading
+import sys
+from typing import Callable, Any
+
+from .backend import Backend
+from .config import load_config
+from .api import send_chat, CodexError
+
+logger = logging.getLogger(__name__)
+
+HOST: str = "127.0.0.1"
+PORT: int = 9876
+
+
+class SocketBackendServer:
+    def __init__(self, host: str, port: int) -> None:
+        self._host = host
+        self._port = port
+        self._backend = Backend()
+        self._config = load_config()
+        self._shutdown_flag = False
+        
+        logger.info(f"SocketBackendServer initialized (host={host}, port={port})")
+    
+    def _request_shutdown(self) -> None:
+        logger.info("Shutdown requested by client")
+        self._shutdown_flag = True
+    
+    def serve_forever(self) -> None:
+        logger.info("=" * 80)
+        logger.info("SOCKET BACKEND SERVER STARTING")
+        logger.info("=" * 80)
+        logger.info(f"Binding to {self._host}:{self._port}")
+        
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind((self._host, self._port))
+            sock.listen(5)
+            
+            logger.info(f"Listening on {self._host}:{self._port}")
+            logger.info("Waiting for connections...")
+            
+            while not self._shutdown_flag:
+                sock.settimeout(1.0)
+                
+                try:
+                    conn, addr = sock.accept()
+                    logger.info(f"Connection received from {addr}")
+                    
+                    client_thread = threading.Thread(
+                        target=self._handle_client,
+                        args=(conn, addr),
+                        daemon=True,
+                    )
+                    client_thread.start()
+                    
+                except socket.timeout:
+                    continue
+                except Exception as exc:
+                    logger.error(f"Error accepting connection: {exc}", exc_info=True)
+                    break
+        
+        logger.info("=" * 80)
+        logger.info("SOCKET BACKEND SERVER SHUTTING DOWN")
+        logger.info("=" * 80)
+    
+    def _handle_client(self, conn: socket.socket, addr: tuple[str, int]) -> None:
+        client_id = f"{addr[0]}:{addr[1]}"
+        logger.info(f"[Client {client_id}] Connected")
+        
+        def send(data: dict[str, Any]) -> None:
+            try:
+                message = json.dumps(data) + "\\n"
+                conn.sendall(message.encode("utf-8"))
+                logger.debug(f"[Client {client_id}] Sent: {data.get('type', '?')}")
+            except Exception as exc:
+                logger.error(f"[Client {client_id}] Send error: {exc}")
+        
+        def log_callback(msg: str) -> None:
+            logger.info(f"[Backend] {msg}")
+            send({"type": "log", "message": msg})
+        
+        buffer = ""
+        
+        try:
+            while True:
+                chunk = conn.recv(4096).decode("utf-8")
+                if not chunk:
+                    logger.info(f"[Client {client_id}] Connection closed by client")
+                    break
+                
+                buffer += chunk
+                
+                while "\\n" in buffer:
+                    line, buffer = buffer.split("\\n", 1)
+                    line = line.strip()
+                    
+                    if not line:
+                        continue
+                    
+                    try:
+                        msg = json.loads(line)
+                    except json.JSONDecodeError as exc:
+                        logger.error(f"[Client {client_id}] Invalid JSON: {exc}")
+                        send({"type": "error", "message": "Invalid JSON"})
+                        continue
+                    
+                    mtype = msg.get("type")
+                    logger.debug(f"[Client {client_id}] Received: {mtype}")
+                    
+                    if mtype == "ping":
+                        send({"type": "pong"})
+                        
+                    elif mtype == "start_backend":
+                        def start_worker():
+                            self._backend.start(log_callback)
+                        
+                        threading.Thread(target=start_worker, daemon=True).start()
+                        send({"type": "start_backend_ack"})
+                        
+                    elif mtype == "stop_backend":
+                        def stop_worker():
+                            self._backend.stop(log_callback)
+                        
+                        threading.Thread(target=stop_worker, daemon=True).start()
+                        send({"type": "stop_backend_ack"})
+                        
+                    elif mtype == "status":
+                        running = self._backend.is_running()
+                        send({"type": "status", "running": running})
+                        
+                    elif mtype == "chat":
+                        messages = msg.get("messages") or []
+                        req_id = msg.get("id", "")
+                        logger.info(f"[Client {client_id}] Chat request {req_id} ({len(messages)} messages)")
+
+                        def chat_worker() -> None:
+                            try:
+                                reply = send_chat(messages, self._config)
+                                send({
+                                    "type": "chat_reply",
+                                    "id": req_id,
+                                    "ok": True,
+                                    "content": reply,
+                                })
+                            except CodexError as exc:
+                                logger.error(f"[Client {client_id}] Chat error: {exc}")
+                                send({
+                                    "type": "chat_reply",
+                                    "id": req_id,
+                                    "ok": False,
+                                    "error": str(exc),
+                                })
+
+                        threading.Thread(target=chat_worker, daemon=True).start()
+                        
+                    elif mtype == "shutdown":
+                        logger.info(f"[Client {client_id}] Shutdown requested")
+                        self._backend.stop(log_callback)
+                        send({"type": "shutdown_ack"})
+                        self._request_shutdown()
+                        break
+            
+        except Exception as exc:
+            logger.error(f"[Client {client_id}] Exception: {exc}", exc_info=True)
+            
+        finally:
+            conn.close()
+            logger.info(f"[Client {client_id}] Disconnected")
+
+
+def main() -> int:
+    from .logging_utils import setup_logging
+    setup_logging()
+    
+    logger.info("DAEMON MAIN() CALLED")
+    
+    server = SocketBackendServer(HOST, PORT)
+    server.serve_forever()
+    
+    logger.info("DAEMON MAIN() EXITING")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+'''
+
+def generate_codex_portable():
+    """codex_portable.py"""
+    return '''#!/usr/bin/env python3
+from __future__ import annotations
+
+import sys
+import socket
+import json
+import uuid
+import logging
+from pathlib import Path
+
+try:
+    from PyQt6.QtWidgets import (
+        QApplication,
+        QMainWindow,
+        QWidget,
+        QVBoxLayout,
+        QHBoxLayout,
+        QTextEdit,
+        QLineEdit,
+        QPushButton,
+        QLabel,
+    )
+    from PyQt6.QtCore import QThread, pyqtSignal, Qt
+    from PyQt6.QtGui import QFont, QTextCursor
+except ImportError:
+    print("ERROR: PyQt6 not found. Please install it:")
+    print("  pip install PyQt6>=6.4.0")
+    sys.exit(1)
+
+from codex_clone.logging_utils import setup_logging
+
+logger = logging.getLogger(__name__)
+
+
+class SocketClient(QThread):
+    message_received = pyqtSignal(dict)
+    connection_status = pyqtSignal(bool, str)
+    
+    def __init__(self, host: str, port: int) -> None:
+        super().__init__()
+        self._host = host
+        self._port = port
+        self._sock: socket.socket | None = None
+        self._running = False
+        logger.debug(f"SocketClient initialized (host={host}, port={port})")
+    
+    def run(self) -> None:
+        logger.info("SocketClient thread starting...")
+        self._running = True
+        
+        try:
+            self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            logger.info(f"Connecting to {self._host}:{self._port}...")
+            self._sock.connect((self._host, self._port))
+            logger.info("Connected to socket backend")
+            self.connection_status.emit(True, "Connected")
+            
+            buffer = ""
+            
+            while self._running:
+                try:
+                    chunk = self._sock.recv(4096).decode("utf-8")
+                    if not chunk:
+                        logger.warning("Server closed connection")
+                        break
+                    
+                    buffer += chunk
+                    
+                    while "\\n" in buffer:
+                        line, buffer = buffer.split("\\n", 1)
+                        line = line.strip()
+                        
+                        if not line:
+                            continue
+                        
+                        try:
+                            msg = json.loads(line)
+                            logger.debug(f"Received message: {msg.get('type', '?')}")
+                            self.message_received.emit(msg)
+                        except json.JSONDecodeError as exc:
+                            logger.error(f"Invalid JSON from server: {exc}")
+                
+                except Exception as exc:
+                    if self._running:
+                        logger.error(f"Socket error: {exc}")
+                    break
+        
+        except Exception as exc:
+            logger.error(f"Connection failed: {exc}")
+            self.connection_status.emit(False, f"Connection failed: {exc}")
+        
+        finally:
+            if self._sock:
+                self._sock.close()
+            logger.info("SocketClient thread exiting")
+            self.connection_status.emit(False, "Disconnected")
+    
+    def send_message(self, data: dict) -> None:
+        if not self._sock:
+            logger.warning("Cannot send message: not connected")
+            return
+        
+        try:
+            message = json.dumps(data) + "\\n"
+            self._sock.sendall(message.encode("utf-8"))
+            logger.debug(f"Sent message: {data.get('type', '?')}")
+        except Exception as exc:
+            logger.error(f"Failed to send message: {exc}")
+    
+    def stop(self) -> None:
+        logger.info("Stopping SocketClient...")
+        self._running = False
+        if self._sock:
+            try:
+                self._sock.shutdown(socket.SHUT_RDWR)
+            except Exception:
+                pass
+
+
+class CodexWindow(QMainWindow):
+    def __init__(self) -> None:
+        super().__init__()
+        self._client: SocketClient | None = None
+        self._pending_requests: dict[str, bool] = {}
+        
+        self.setWindowTitle("Codex Portable Desktop")
+        self.setGeometry(100, 100, 900, 700)
+        
+        self._setup_ui()
+        self._start_socket_client()
+        
+        logger.info("CodexWindow initialized")
+    
+    def _setup_ui(self) -> None:
+        central = QWidget()
+        self.setCentralWidget(central)
+        
+        layout = QVBoxLayout(central)
+        
+        self._status_label = QLabel("Status: Initializing...")
+        layout.addWidget(self._status_label)
+        
+        btn_layout = QHBoxLayout()
+        
+        self._start_backend_btn = QPushButton("Start Backend")
+        self._start_backend_btn.clicked.connect(self._on_start_backend)
+        btn_layout.addWidget(self._start_backend_btn)
+        
+        self._stop_backend_btn = QPushButton("Stop Backend")
+        self._stop_backend_btn.clicked.connect(self._on_stop_backend)
+        btn_layout.addWidget(self._stop_backend_btn)
+        
+        self._check_status_btn = QPushButton("Check Status")
+        self._check_status_btn.clicked.connect(self._on_check_status)
+        btn_layout.addWidget(self._check_status_btn)
+        
+        layout.addLayout(btn_layout)
+        
+        self._output = QTextEdit()
+        self._output.setReadOnly(True)
+        self._output.setFont(QFont("Consolas", 10))
+        layout.addWidget(self._output)
+        
+        input_layout = QHBoxLayout()
+        
+        self._input = QLineEdit()
+        self._input.setPlaceholderText("Type your coding question here...")
+        self._input.returnPressed.connect(self._on_send)
+        input_layout.addWidget(self._input)
+        
+        send_btn = QPushButton("Send")
+        send_btn.clicked.connect(self._on_send)
+        input_layout.addWidget(send_btn)
+        
+        layout.addLayout(input_layout)
+    
+    def _start_socket_client(self) -> None:
+        logger.info("Starting socket client thread...")
+        self._client = SocketClient("127.0.0.1", 9876)
+        self._client.message_received.connect(self._on_message_received)
+        self._client.connection_status.connect(self._on_connection_status)
+        self._client.start()
+    
+    def _on_connection_status(self, connected: bool, message: str) -> None:
+        logger.info(f"Connection status: {message}")
+        self._status_label.setText(f"Status: {message}")
+        
+        if connected:
+            self._append_output("[System] Connected to backend daemon\\n", "green")
+        else:
+            self._append_output(f"[System] {message}\\n", "red")
+    
+    def _on_message_received(self, msg: dict) -> None:
+        mtype = msg.get("type")
+        
+        if mtype == "log":
+            log_msg = msg.get("message", "")
+            self._append_output(f"[Backend] {log_msg}\\n", "blue")
+        
+        elif mtype == "chat_reply":
+            req_id = msg.get("id", "")
+            ok = msg.get("ok", False)
+            
+            if req_id in self._pending_requests:
+                del self._pending_requests[req_id]
+            
+            if ok:
+                content = msg.get("content", "")
+                self._append_output(f"\\n[Assistant]\\n{content}\\n\\n", "darkgreen")
+            else:
+                error = msg.get("error", "Unknown error")
+                self._append_output(f"[Error] {error}\\n", "red")
+        
+        elif mtype == "status":
+            running = msg.get("running", False)
+            status_text = "Running" if running else "Stopped"
+            self._append_output(f"[Backend Status] {status_text}\\n", "blue")
+    
+    def _append_output(self, text: str, color: str = "black") -> None:
+        cursor = self._output.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        
+        self._output.setTextCursor(cursor)
+        self._output.setTextColor(Qt.GlobalColor.__dict__.get(color, Qt.GlobalColor.black))
+        self._output.insertPlainText(text)
+        
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        self._output.setTextCursor(cursor)
+    
+    def _on_start_backend(self) -> None:
+        logger.info("User requested to start backend")
+        if self._client:
+            self._client.send_message({"type": "start_backend"})
+            self._append_output("[System] Starting backend...\\n", "blue")
+    
+    def _on_stop_backend(self) -> None:
+        logger.info("User requested to stop backend")
+        if self._client:
+            self._client.send_message({"type": "stop_backend"})
+            self._append_output("[System] Stopping backend...\\n", "blue")
+    
+    def _on_check_status(self) -> None:
+        logger.info("User requested backend status check")
+        if self._client:
+            self._client.send_message({"type": "status"})
+    
+    def _on_send(self) -> None:
+        user_input = self._input.text().strip()
+        
+        if not user_input:
+            return
+        
+        logger.info(f"User sent message: {user_input[:50]}...")
+        
+        self._append_output(f"[You] {user_input}\\n", "darkblue")
+        self._input.clear()
+        
+        req_id = str(uuid.uuid4())
+        self._pending_requests[req_id] = True
+        
+        messages = [
+            {"role": "system", "content": "You are a helpful coding assistant. Focus on code, be concise, and always provide complete examples."},
+            {"role": "user", "content": user_input}
+        ]
+        
+        if self._client:
+            self._client.send_message({
+                "type": "chat",
+                "id": req_id,
+                "messages": messages
+            })
+            self._append_output("[System] Processing request...\\n", "gray")
+    
+    def closeEvent(self, event) -> None:
+        logger.info("Window closing, shutting down client...")
+        
+        if self._client:
+            self._client.stop()
+            self._client.wait(3000)
+        
+        event.accept()
+
+
+def main() -> int:
+    setup_logging()
+    
+    logger.info("=" * 80)
+    logger.info("CODEX PORTABLE DESKTOP STARTING")
+    logger.info("=" * 80)
+    logger.info(f"Python: {sys.version}")
+    logger.info(f"Working directory: {Path.cwd()}")
+    
+    app = QApplication(sys.argv)
+    window = CodexWindow()
+    window.show()
+    
+    logger.info("GUI initialized, entering event loop")
+    
+    rc = app.exec()
+    
+    logger.info("=" * 80)
+    logger.info("CODEX PORTABLE DESKTOP EXITING")
+    logger.info("=" * 80)
+    
+    return rc
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+'''
+
+def generate_tests_init():
+    """tests/__init__.py"""
+    return '''"""Test suite for Codex Portable Desktop."""
+'''
+
+def generate_test_config():
+    """tests/test_config.py"""
+    return '''from __future__ import annotations
+
+import unittest
+import os
+
+from codex_clone.config import load_config
+
+
+class TestConfig(unittest.TestCase):
+    def test_load_default_config(self):
+        """Test loading configuration with defaults."""
+        config = load_config()
+        
+        self.assertIsNotNone(config)
+        self.assertEqual(config.base_url, os.getenv("CODEX_BASE_URL", "http://localhost:1234"))
+        self.assertEqual(config.model, os.getenv("CODEX_MODEL", "local-coder"))
+        self.assertEqual(config.temperature, float(os.getenv("CODEX_TEMPERATURE", "0.2")))
+        self.assertEqual(config.max_tokens, int(os.getenv("CODEX_MAX_TOKENS", "2048")))
+
+
+if __name__ == "__main__":
+    unittest.main()
+'''
+
+def generate_gitignore():
+    """.gitignore"""
+    return '''# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+codex.log*
+
+# Models
+models/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated
+generator.log
+'''
+
+
+def write_file(path: Path, content: str, logger: logging.Logger) -> None:
+    """Write content to a file and log the operation."""
+    try:
+        logger.info(f"Writing file: {path}")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding='utf-8')
+        size_kb = len(content) / 1024
+        logger.info(f"  ✓ Created {path} ({size_kb:.2f} KB)")
+    except Exception as exc:
+        logger.error(f"  ✗ Failed to write {path}: {exc}")
+        raise
+
+
+def main() -> int:
+    """Main generator function."""
+    output_dir = Path.cwd()
+    log_path = output_dir / "generator.log"
+    
+    setup_logging(log_path)
+    logger = logging.getLogger(__name__)
+    
+    logger.info(f"Output directory: {output_dir}")
+    logger.info("Starting project generation...")
+    logger.info("=" * 80)
+    
+    files_to_generate: list[tuple[str, Callable[[], str]]] = [
+        ("pyproject.toml", generate_pyproject_toml),
+        ("README.md", generate_readme),
+        (".gitignore", generate_gitignore),
+        ("run_tests.py", generate_run_tests_py),
+        ("run_tests.sh", generate_run_tests_sh),
+        ("run_tests.bat", generate_run_tests_bat),
+        ("codex_clone/__init__.py", generate_codex_clone_init),
+        ("codex_clone/config.py", generate_codex_clone_config),
+        ("codex_clone/logging_utils.py", generate_codex_clone_logging_utils),
+        ("codex_clone/api.py", generate_codex_clone_api),
+        ("codex_clone/backend_helper.py", generate_codex_clone_backend_helper),
+        ("codex_clone/backend.py", generate_codex_clone_backend),
+        ("codex_clone/socket_backend.py", generate_codex_clone_socket_backend),
+        ("codex_portable.py", generate_codex_portable),
+        ("tests/__init__.py", generate_tests_init),
+        ("tests/test_config.py", generate_test_config),
+    ]
+    
+    successful = 0
+    failed = 0
+    
+    for relative_path, generator_func in files_to_generate:
+        try:
+            logger.info(f"Generating: {relative_path}")
+            content = generator_func()
+            file_path = output_dir / relative_path
+            write_file(file_path, content, logger)
+            successful += 1
+        except Exception as exc:
+            logger.error(f"Failed to generate {relative_path}: {exc}")
+            failed += 1
+    
+    logger.info("=" * 80)
+    logger.info("GENERATION COMPLETE")
+    logger.info(f"  Successful: {successful}")
+    logger.info(f"  Failed: {failed}")
+    logger.info(f"  Total: {successful + failed}")
+    logger.info("=" * 80)
+    
+    if failed > 0:
+        logger.error(f"{failed} files failed to generate")
+        return 1
+    
+    logger.info("All files generated successfully!")
+    logger.info(f"Check {log_path} for detailed logs")
+    
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
