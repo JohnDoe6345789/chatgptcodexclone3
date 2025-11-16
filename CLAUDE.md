@@ -20,6 +20,28 @@ python run_tests.py
 
 Runs all unit tests in the `tests/` directory.
 
+## Agent Helper CLI
+
+```bash
+python agent.py <command> [options]
+```
+
+Convenient CLI for common development tasks:
+
+**Git Commands**: `git-status`, `git-log [N]`, `git-diff`, `git-diff-staged`, `git-branch`  
+**Search & Analysis**: `grep-files <pattern> [ext]`, `count-lines [ext]`, `list-files [ext] [depth]`  
+**Testing & Quality**: `test`, `lint`, `typecheck`  
+**Utilities**: `help`
+
+Examples:
+```bash
+python agent.py help                      # Show all commands
+python agent.py count-lines py            # Count Python lines
+python agent.py grep-files "def " py      # Search for functions
+python agent.py git-log 10                # Show last 10 commits
+python agent.py list-files py 2           # List Python files (max depth 2)
+```
+
 ## Project Structure
 
 - `run.py` - Bootstrap installer with dependency management
