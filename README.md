@@ -1,3 +1,5 @@
 # chatgptcodexclone3
+
 Single file!
-complete_codex_gen.py
+
+generate_codex_project.py
