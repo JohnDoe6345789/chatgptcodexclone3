@@ -42,6 +42,8 @@ python agent.py git-log 10                # Show last 10 commits
 python agent.py list-files py 2           # List Python files (max depth 2)
 ```
 
+**Note**: If you need to run a command that's not already defined in `agent.py`, add it to the agent helper first rather than running ad-hoc bash commands. This keeps the development workflow documented and consistent.
+
 ## Project Structure
 
 - `run.py` - Bootstrap installer with dependency management
