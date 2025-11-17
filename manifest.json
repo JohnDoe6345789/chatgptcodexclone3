@@ -4,26 +4,25 @@
   "version": "1.0.0",
   "generated_by": "generate_codex_project.py",
   "files": [
-    "pyproject.toml",
-    "run_tests.py",
-    "run_tests.sh",
-    "run_tests.bat",
-    "codex_portable.py",
-    "tests/__init__.py",
-    "tests/test_config.py",
-    "tests/test_api.py",
-    "codex_clone/__init__.py",
-    "codex_clone/config.py",
-    "codex_clone/logging_utils.py",
-    "codex_clone/settings.py",
-    "codex_clone/api.py",
-    "codex_clone/backend_helper.py",
-    "codex_clone/backend.py",
-    "codex_clone/socket_backend.py"
+    "generated/pyproject.toml",
+    "generated/run_tests.py",
+    "generated/run_tests.sh",
+    "generated/run_tests.bat",
+    "generated/codex_portable.py",
+    "generated/tests/__init__.py",
+    "generated/tests/test_config.py",
+    "generated/tests/test_api.py",
+    "generated/codex_clone/__init__.py",
+    "generated/codex_clone/config.py",
+    "generated/codex_clone/logging_utils.py",
+    "generated/codex_clone/settings.py",
+    "generated/codex_clone/api.py",
+    "generated/codex_clone/backend_helper.py",
+    "generated/codex_clone/backend.py",
+    "generated/codex_clone/socket_backend.py"
   ],
   "directories": [
-    "codex_clone",
-    "tests"
+    "generated"
   ],
   "logs": [
     "generator.log",

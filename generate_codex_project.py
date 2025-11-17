@@ -2329,8 +2329,9 @@ def write_file(path: Path, content: str, logger: logging.Logger) -> None:
 
 def main() -> int:
     """Main generator function."""
-    output_dir = Path.cwd()
-    log_path = output_dir / "generator.log"
+    root_dir = Path.cwd()
+    output_dir = root_dir / "generated"
+    log_path = root_dir / "generator.log"
     
     setup_logging(log_path)
     logger = logging.getLogger(__name__)
