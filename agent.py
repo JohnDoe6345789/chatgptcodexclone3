@@ -4,30 +4,46 @@ Agent Helper CLI - Run common development tasks and utilities
 Provides a convenient interface for git, grep, file analysis, and more
 """
 
+from __future__ import annotations
+
 import argparse
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict, Callable
 
 
 class AgentHelper:
+    COMMAND_TIMEOUT: int = 300
+    
     def __init__(self):
         self.repo_root = Path(__file__).parent
 
-    def run_command(self, cmd: List[str], description: str = None) -> int:
-        """Execute a shell command and return exit code"""
+    def run_command(self, cmd: List[str], description: Optional[str] = None, timeout: Optional[int] = None) -> int:
+        """Execute a shell command and return exit code.
+        
+        Args:
+            cmd: Command and arguments to run
+            description: Optional description to display
+            timeout: Timeout in seconds (default: 300)
+            
+        Returns:
+            Exit code of the command
+        """
+        if timeout is None:
+            timeout = self.COMMAND_TIMEOUT
+            
         if description:
             print(f"[*] {description}")
         print(f"$ {' '.join(cmd)}\n")
         try:
-            result = subprocess.run(cmd, cwd=self.repo_root, timeout=300)
+            result = subprocess.run(cmd, cwd=self.repo_root, timeout=timeout)
             return result.returncode
         except FileNotFoundError:
             print(f"[!] Command not found: {cmd[0]}")
             return 1
         except subprocess.TimeoutExpired:
-            print("[!] Command timed out after 300 seconds")
+            print(f"[!] Command timed out after {timeout} seconds")
             return 124
         except KeyboardInterrupt:
             print("\n[!] Interrupted")
@@ -56,8 +72,10 @@ class AgentHelper:
         """List git branches"""
         return self.run_command(["git", "branch", "-a"], "Git Branches")
 
-    def git_add(self, files: str = ".") -> int:
+    def git_add(self, files: Optional[str] = None) -> int:
         """Stage files for commit"""
+        if files is None:
+            files = "."
         return self.run_command(["git", "add", files], f"Git Add ({files})")
 
     def git_commit(self, message: str) -> int:
@@ -72,8 +90,10 @@ class AgentHelper:
         message = "\n".join(lines)
         return self.run_command(["git", "commit", "-m", message], "Git Commit (multiline)")
 
-    def git_push(self, remote: str = "origin", branch: str = None) -> int:
+    def git_push(self, remote: Optional[str] = None, branch: Optional[str] = None) -> int:
         """Push commits to remote"""
+        if remote is None:
+            remote = "origin"
         cmd = ["git", "push", remote]
         if branch:
             cmd.append(branch)
@@ -112,7 +132,7 @@ class AgentHelper:
         return self.git_push(remote, branch)
 
     def grep_files(self, pattern: str, extensions: Optional[str] = None) -> int:
-        """Search for pattern in files"""
+        """Search for pattern in files."""
         print(f"[*] Search for '{pattern}' in {extensions or 'all'} files\n")
         
         matches = 0
@@ -121,7 +141,7 @@ class AgentHelper:
         for file_path in self.repo_root.rglob(f"*{pattern_ext}"):
             if file_path.is_file():
                 try:
-                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
                         for line_num, line in enumerate(f, 1):
                             if pattern in line:
                                 rel_path = file_path.relative_to(self.repo_root)
@@ -138,7 +158,7 @@ class AgentHelper:
         return 0
 
     def count_lines(self, extension: Optional[str] = None) -> int:
-        """Count lines in files"""
+        """Count lines in files."""
         total_lines = 0
         file_count = 0
         pattern = f"*.{extension}" if extension else "*"
@@ -150,7 +170,7 @@ class AgentHelper:
         for file_path in self.repo_root.rglob(pattern):
             if file_path.is_file():
                 try:
-                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
                         lines = len(f.readlines())
                         total_lines += lines
                         file_count += 1
@@ -164,7 +184,7 @@ class AgentHelper:
         return 0
 
     def list_files(self, extension: Optional[str] = None, max_depth: int = 3) -> int:
-        """List files by extension"""
+        """List files by extension."""
         pattern = f"*.{extension}" if extension else "*"
         desc = f"Files with .{extension} extension (max depth: {max_depth})" if extension else f"All files (max depth: {max_depth})"
         

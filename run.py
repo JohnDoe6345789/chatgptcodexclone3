@@ -5,9 +5,12 @@ Handles dependency installation with GUI (tkinter or ncurses fallback).
 Run: python run.py
 """
 
+from __future__ import annotations
+
 import sys
 import subprocess
 from pathlib import Path
+from typing import Optional, Dict
 
 
 REQUIRED_PACKAGES = {
@@ -21,9 +24,9 @@ OPTIONAL_PACKAGES = {
 }
 
 
-def check_dependencies():
+def check_dependencies() -> Dict[str, str]:
     """Return dict of missing required packages."""
-    missing = {}
+    missing: Dict[str, str] = {}
     for module_name, pip_name in REQUIRED_PACKAGES.items():
         try:
             __import__(module_name)
@@ -32,9 +35,9 @@ def check_dependencies():
     return missing
 
 
-def check_optional_dependencies():
+def check_optional_dependencies() -> Dict[str, str]:
     """Return dict of missing optional packages."""
-    missing = {}
+    missing: Dict[str, str] = {}
     for module_name, pip_name in OPTIONAL_PACKAGES.items():
         try:
             __import__(module_name)
@@ -43,7 +46,7 @@ def check_optional_dependencies():
     return missing
 
 
-def try_tkinter_gui():
+def try_tkinter_gui() -> Optional[bool]:
     """Try to show tkinter GUI for installation. Returns True/False or None if unavailable."""
     try:
         import tkinter as tk
@@ -155,7 +158,7 @@ def _do_tkinter_install(packages_dict):
         return False
 
 
-def try_ncurses_installer():
+def try_ncurses_installer() -> Optional[bool]:
     """Fallback ncurses-based installer for Linux. Returns True/False or None if unavailable."""
     try:
         import curses

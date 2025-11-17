@@ -5,11 +5,23 @@ Writes the entire multi-file project structure to disk with logging.
 Run: python generate_codex_project.py
 """
 
+from __future__ import annotations
+
 import logging
 import logging.handlers
 from pathlib import Path
-from typing import Callable
+from typing import Callable, List, Tuple
 import sys
+
+from typing import Final, Optional, Dict, Any
+
+MAX_MESSAGE_LENGTH: Final[int] = 10000
+MAX_MESSAGES: Final[int] = 100
+INITIAL_BACKOFF: Final[float] = 2.0
+MAX_RETRIES: Final[int] = 3
+SOCKET_HOST: Final[str] = "127.0.0.1"
+SOCKET_PORT: Final[int] = 9876
+MAX_WORKERS: Final[int] = 10
 
 
 def setup_logging(log_path: Path) -> None:
@@ -46,6 +58,29 @@ def setup_logging(log_path: Path) -> None:
     root_logger.info("Project Generator Started")
     root_logger.info(f"Log file: {log_path}")
     root_logger.info("=" * 80)
+
+
+API_MAX_MESSAGE_LENGTH: Final[int] = 10000
+API_MAX_MESSAGES: Final[int] = 100
+API_MAX_RETRIES: Final[int] = 3
+API_INITIAL_BACKOFF: Final[float] = 1.0
+API_REQUEST_TIMEOUT: Final[int] = 120
+API_RESPONSE_PREVIEW_LENGTH: Final[int] = 200
+API_REPLY_PREVIEW_LENGTH: Final[int] = 100
+
+BACKEND_PROCESS_TIMEOUT: Final[int] = 10
+BACKEND_LLAMA_HOST: Final[str] = "127.0.0.1"
+BACKEND_LLAMA_PORT: Final[int] = 1234
+BACKEND_CONTEXT_SIZE: Final[int] = 8192
+BACKEND_MAX_LINE_BUFFER: Final[int] = 1000000
+
+SOCKET_HOST: Final[str] = "127.0.0.1"
+SOCKET_PORT: Final[int] = 9876
+SOCKET_MAX_WORKERS: Final[int] = 10
+SOCKET_TIMEOUT: Final[float] = 1.0
+
+LOG_MAX_BYTES: Final[int] = 10 * 1024 * 1024
+LOG_BACKUP_COUNT: Final[int] = 5
 
 
 def generate_pyproject_toml():
@@ -213,12 +248,29 @@ DEFAULT_MAX_TOKENS = 2048
 
 @dataclass
 class Config:
+    """Configuration for the Codex API client."""
     base_url: str
     api_key: str | None
     model: str
     system_prompt: str
     temperature: float
     max_tokens: int
+    
+    def validate(self) -> None:
+        """Validate configuration values."""
+        if not self.base_url:
+            raise ValueError("base_url cannot be empty")
+        if not self.base_url.startswith(("http://", "https://")):
+            raise ValueError(f"base_url must be HTTP(S): {self.base_url}")
+        if not self.model:
+            raise ValueError("model cannot be empty")
+        if not 0 <= self.temperature <= 2:
+            raise ValueError(f"temperature must be 0-2, got {self.temperature}")
+        if self.max_tokens < 1:
+            raise ValueError(f"max_tokens must be >= 1, got {self.max_tokens}")
+        if not self.system_prompt:
+            raise ValueError("system_prompt cannot be empty")
+        logger.debug("Configuration validation passed")
 
 
 def _get_env(name: str, default: str) -> str:
@@ -256,6 +308,8 @@ def load_config() -> Config:
         max_tokens=max_tokens,
     )
     
+    config.validate()
+    
     logger.info(f"Configuration loaded: base_url={base_url}, model={model}, "
                 f"temperature={temperature}, max_tokens={max_tokens}")
     
@@ -280,9 +334,14 @@ def generate_codex_clone_logging_utils():
     """codex_clone/logging_utils.py"""
     return '''from __future__ import annotations
 
+from typing import Final
+
 import logging
 import logging.handlers
 from pathlib import Path
+
+LOG_MAX_BYTES: Final[int] = 10 * 1024 * 1024
+LOG_BACKUP_COUNT: Final[int] = 5
 
 
 def setup_logging(log_path: Path | None = None, level: int = logging.DEBUG) -> None:
@@ -307,8 +366,8 @@ def setup_logging(log_path: Path | None = None, level: int = logging.DEBUG) -> N
     # File handler with rotation
     file_handler = logging.handlers.RotatingFileHandler(
         log_path,
-        maxBytes=10 * 1024 * 1024,  # 10MB
-        backupCount=5,
+        maxBytes=LOG_MAX_BYTES,
+        backupCount=LOG_BACKUP_COUNT,
         encoding='utf-8'
     )
     file_handler.setLevel(logging.DEBUG)
@@ -417,7 +476,7 @@ def generate_codex_clone_api():
     """codex_clone/api.py"""
     return '''from __future__ import annotations
 
-from typing import Iterable, List, Dict
+from typing import Iterable, List, Dict, Final
 
 import json
 import urllib.request
@@ -429,10 +488,13 @@ from .config import Config
 
 logger = logging.getLogger(__name__)
 
-MAX_MESSAGE_LENGTH = 10000
-MAX_MESSAGES = 100
-MAX_RETRIES = 3
-INITIAL_BACKOFF = 1.0
+MAX_MESSAGE_LENGTH: Final[int] = 10000
+MAX_MESSAGES: Final[int] = 100
+MAX_RETRIES: Final[int] = 3
+INITIAL_BACKOFF: Final[float] = 1.0
+REQUEST_TIMEOUT: Final[int] = 120
+RESPONSE_PREVIEW_LENGTH: Final[int] = 200
+REPLY_PREVIEW_LENGTH: Final[int] = 100
 
 
 class CodexError(RuntimeError):
@@ -440,7 +502,15 @@ class CodexError(RuntimeError):
 
 
 def _validate_messages(messages: Iterable[Dict[str, str]]) -> List[Dict[str, str]]:
-    """Validate and sanitize messages."""
+    """Validate and sanitize messages.
+    
+    Checks:
+    - List is not empty and not too large
+    - Each message is a dict with required fields
+    - All values are strings
+    - Content length is within limits
+    - Role values are valid
+    """
     msg_list = list(messages)
     
     if not msg_list:
@@ -449,6 +519,8 @@ def _validate_messages(messages: Iterable[Dict[str, str]]) -> List[Dict[str, str
     if len(msg_list) > MAX_MESSAGES:
         raise CodexError(f"Too many messages: {len(msg_list)} > {MAX_MESSAGES}")
     
+    valid_roles = {"system", "user", "assistant"}
+    
     for i, msg in enumerate(msg_list):
         if not isinstance(msg, dict):
             raise CodexError(f"Message {i} is not a dict")
@@ -456,14 +528,21 @@ def _validate_messages(messages: Iterable[Dict[str, str]]) -> List[Dict[str, str
         if "role" not in msg or "content" not in msg:
             raise CodexError(f"Message {i} missing required fields (role, content)")
         
+        role = msg.get("role", "")
+        if role not in valid_roles:
+            raise CodexError(f"Message {i} has invalid role: {role}. Must be one of {valid_roles}")
+        
         content = msg.get("content", "")
         if not isinstance(content, str):
-            raise CodexError(f"Message {i} content is not a string")
+            raise CodexError(f"Message {i} content is not a string (got {type(content).__name__})")
+        
+        if not content.strip():
+            raise CodexError(f"Message {i} has empty content")
         
         if len(content) > MAX_MESSAGE_LENGTH:
             raise CodexError(f"Message {i} exceeds max length: {len(content)} > {MAX_MESSAGE_LENGTH}")
     
-    logger.debug(f"Validated {len(msg_list)} messages")
+    logger.debug(f"Validated {len(msg_list)} messages successfully")
     return msg_list
 
 
@@ -496,7 +575,12 @@ def _build_request(
     payload: bytes,
     config: Config,
 ) -> urllib.request.Request:
-    url = config.base_url.rstrip("/") + "/v1/chat/completions"
+    base = config.base_url.rstrip("/")
+    
+    if config.api_key and not base.startswith("https://"):
+        logger.warning("API key configured but using non-HTTPS URL. This is insecure!")
+    
+    url = base + "/v1/chat/completions"
     
     logger.debug(f"Building HTTP POST request to {url}")
     
@@ -529,7 +613,7 @@ def _parse_response(data: bytes) -> str:
         
     except json.JSONDecodeError as exc:
         logger.error(f"Invalid JSON from server: {exc}")
-        logger.debug(f"Response preview: {text[:200]}...")
+        logger.debug(f"Response preview: {text[:RESPONSE_PREVIEW_LENGTH]}...")
         raise CodexError("Invalid JSON from server") from exc
     
     if "error" in obj:
@@ -579,7 +663,7 @@ def send_chat(
     
     for attempt in range(MAX_RETRIES):
         try:
-            with urllib.request.urlopen(request, timeout=120) as response:
+            with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
                 logger.debug(f"HTTP connection established (status: {response.code})")
                 body = response.read()
                 
@@ -632,7 +716,7 @@ def send_chat(
         
         total_elapsed = time.time() - start_time
         logger.info(f"Chat request completed in {total_elapsed:.2f} seconds")
-        logger.debug(f"Reply preview: {reply[:100]}...")
+        logger.debug(f"Reply preview: {reply[:REPLY_PREVIEW_LENGTH]}...")
         logger.info("=" * 80)
         
         return reply
@@ -977,12 +1061,16 @@ def generate_codex_clone_backend():
     """codex_clone/backend.py"""
     return '''from __future__ import annotations
 
+from typing import Final
+
 import subprocess
 import sys
 import logging
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+PROCESS_TIMEOUT: Final[int] = 10
 
 
 class Backend:
@@ -1067,17 +1155,17 @@ class Backend:
         try:
             self._proc.terminate()
             
-            logger.info("Waiting for process to exit (timeout: 10 seconds)...")
+            logger.info(f"Waiting for process to exit (timeout: {PROCESS_TIMEOUT} seconds)...")
             
             try:
-                exit_code = self._proc.wait(timeout=10)
+                exit_code = self._proc.wait(timeout=PROCESS_TIMEOUT)
                 logger.info(f"Process {pid} exited with code {exit_code}")
                 
                 if log_callback:
                     log_callback(f"Backend stopped (exit code: {exit_code})")
                 
             except subprocess.TimeoutExpired:
-                logger.warning(f"Process {pid} did not exit after 10 seconds, forcing kill...")
+                logger.warning(f"Process {pid} did not exit after {PROCESS_TIMEOUT} seconds, forcing kill...")
                 self._proc.kill()
                 exit_code = self._proc.wait()
                 logger.info(f"Process {pid} killed (exit code: {exit_code})")
@@ -1100,13 +1188,14 @@ def generate_codex_clone_socket_backend():
     """codex_clone/socket_backend.py"""
     return '''from __future__ import annotations
 
+from typing import Callable, Any, Final
+import os
 import socket
 import json
 import logging
 import threading
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from typing import Callable, Any
 
 from .backend import Backend
 from .config import load_config
@@ -1114,9 +1203,10 @@ from .api import send_chat, CodexError
 
 logger = logging.getLogger(__name__)
 
-HOST: str = "127.0.0.1"
-PORT: int = 9876
-MAX_WORKERS: int = 10
+HOST: Final[str] = os.getenv("CODEX_SOCKET_HOST", "127.0.0.1")
+PORT: Final[int] = int(os.getenv("CODEX_SOCKET_PORT", "9876"))
+MAX_WORKERS: Final[int] = int(os.getenv("CODEX_SOCKET_MAX_WORKERS", "10"))
+SOCKET_TIMEOUT: Final[float] = 1.0
 
 
 class SocketBackendServer:
@@ -1150,7 +1240,7 @@ class SocketBackendServer:
                 logger.info("Waiting for connections...")
                 
                 while not self._shutdown_flag:
-                    sock.settimeout(1.0)
+                    sock.settimeout(SOCKET_TIMEOUT)
                     
                     try:
                         conn, addr = sock.accept()
@@ -2318,7 +2408,16 @@ generator.log
 
 
 def write_file(path: Path, content: str, logger: logging.Logger) -> None:
-    """Write content to a file and log the operation."""
+    """Write content to a file and log the operation.
+    
+    Validates that content is properly formed before writing.
+    """
+    if not isinstance(content, str):
+        raise ValueError(f"Content must be a string, got {type(content).__name__}")
+    
+    if not content.strip():
+        raise ValueError(f"Content cannot be empty for file: {path}")
+    
     try:
         logger.info(f"Writing file: {path}")
         path.parent.mkdir(parents=True, exist_ok=True)

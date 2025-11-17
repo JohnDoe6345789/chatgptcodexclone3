@@ -4,12 +4,14 @@ Cleanup script to remove generated files and directories.
 Run: python cleanup.py
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import shutil
 import sys
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Tuple, Dict, Any
 
 
 def setup_logging(log_path: Path) -> None:
@@ -29,7 +31,7 @@ def setup_logging(log_path: Path) -> None:
     root_logger.addHandler(console_handler)
 
 
-def load_manifest(manifest_path: Path) -> dict:
+def load_manifest(manifest_path: Path) -> Dict[str, Any]:
     """Load the manifest file containing generated files."""
     if not manifest_path.exists():
         raise FileNotFoundError(f"Manifest file not found: {manifest_path}")
@@ -38,7 +40,7 @@ def load_manifest(manifest_path: Path) -> dict:
         return json.load(f)
 
 
-def remove_files(files: List[str], base_dir: Path, logger: logging.Logger) -> tuple[int, int]:
+def remove_files(files: List[str], base_dir: Path, logger: logging.Logger) -> Tuple[int, int]:
     """Remove files listed in manifest."""
     removed = 0
     failed = 0
@@ -62,7 +64,7 @@ def remove_files(files: List[str], base_dir: Path, logger: logging.Logger) -> tu
     return removed, failed
 
 
-def remove_directories(directories: List[str], base_dir: Path, logger: logging.Logger) -> tuple[int, int]:
+def remove_directories(directories: List[str], base_dir: Path, logger: logging.Logger) -> Tuple[int, int]:
     """Remove directories listed in manifest."""
     removed = 0
     failed = 0
@@ -86,7 +88,7 @@ def remove_directories(directories: List[str], base_dir: Path, logger: logging.L
     return removed, failed
 
 
-def remove_logs(base_dir: Path, logger: logging.Logger, log_files: List[str] = None) -> tuple[int, int]:
+def remove_logs(base_dir: Path, logger: logging.Logger, log_files: Optional[List[str]] = None) -> Tuple[int, int]:
     """Remove generated log files."""
     removed = 0
     failed = 0
@@ -109,7 +111,7 @@ def remove_logs(base_dir: Path, logger: logging.Logger, log_files: List[str] = N
     return removed, failed
 
 
-def remove_pycache(base_dir: Path, logger: logging.Logger) -> tuple[int, int]:
+def remove_pycache(base_dir: Path, logger: logging.Logger) -> Tuple[int, int]:
     """Remove all __pycache__ directories recursively."""
     removed = 0
     failed = 0
