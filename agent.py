@@ -191,6 +191,16 @@ class AgentHelper:
             print("[!] Note: mypy not installed. Install with: pip install mypy")
         return result
 
+    def count_lines_batch(self) -> int:
+        """Count lines in .py files using Windows batch method"""
+        if sys.platform != "win32":
+            print("[!] This command is Windows-only")
+            return 1
+        
+        cmd = 'for %f in (*.py) do @(for /f "tokens=3" %a in (\'find /c /v "" %f\') do @echo %a %f)'
+        print("[*] Counting lines in Python files\n")
+        return self.run_command(["cmd", "/c", cmd], "Windows batch line count")
+
     def show_help_message(self):
         """Display help for common tasks"""
         help_text = """
@@ -223,6 +233,7 @@ TESTING & QUALITY
   typecheck               Run type checker (requires mypy)
 
 UTILITIES
+  count-lines-batch       Count .py files (Windows batch method)
   help                    Show this help message
 
 EXAMPLES:
@@ -280,6 +291,7 @@ def main():
         "test": lambda: agent.test(),
         "lint": lambda: agent.lint(),
         "typecheck": lambda: agent.typecheck(),
+        "count_lines_batch": lambda: agent.count_lines_batch(),
         "help": lambda: agent.show_help_message(),
     }
 
