@@ -1,1 +1,0 @@
-"""Local ChatGPT/Codex-style coding assistant."""
