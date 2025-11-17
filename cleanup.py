@@ -91,7 +91,7 @@ def remove_logs(base_dir: Path, logger: logging.Logger) -> tuple[int, int]:
     removed = 0
     failed = 0
     
-    log_files = ["generator.log", "codex.log"]
+    log_files = ["generator.log", "codex.log", "cleanup.log"]
     
     for log_file in log_files:
         log_path = base_dir / log_file
@@ -103,6 +103,26 @@ def remove_logs(base_dir: Path, logger: logging.Logger) -> tuple[int, int]:
                 removed += 1
             except Exception as exc:
                 logger.error(f"Failed to remove {log_file}: {exc}")
+                failed += 1
+    
+    return removed, failed
+
+
+def remove_pycache(base_dir: Path, logger: logging.Logger) -> tuple[int, int]:
+    """Remove all __pycache__ directories recursively."""
+    removed = 0
+    failed = 0
+    
+    for pycache_dir in base_dir.rglob("__pycache__"):
+        if pycache_dir.is_dir():
+            try:
+                import shutil
+                shutil.rmtree(pycache_dir)
+                rel_path = pycache_dir.relative_to(base_dir)
+                logger.info(f"Removed directory: {rel_path}")
+                removed += 1
+            except Exception as exc:
+                logger.error(f"Failed to remove {pycache_dir}: {exc}")
                 failed += 1
     
     return removed, failed
@@ -142,6 +162,11 @@ def main() -> int:
         removed, failed = remove_directories(manifest["directories"], base_dir, logger)
         total_removed += removed
         total_failed += failed
+    
+    logger.info("\nRemoving __pycache__ directories...")
+    removed, failed = remove_pycache(base_dir, logger)
+    total_removed += removed
+    total_failed += failed
     
     logger.info("\nRemoving log files...")
     removed, failed = remove_logs(base_dir, logger)
