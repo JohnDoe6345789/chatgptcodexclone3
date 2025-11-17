@@ -5,8 +5,6 @@
   "generated_by": "generate_codex_project.py",
   "files": [
     "pyproject.toml",
-    "README.md",
-    ".gitignore",
     "run_tests.py",
     "run_tests.sh",
     "run_tests.bat",
