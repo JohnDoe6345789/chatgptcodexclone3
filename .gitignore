@@ -46,3 +46,12 @@ Thumbs.db
 
 # Generated
 generator.log
+cleanup.log
+
+# Codegen files and artifacts
+codex_clone/
+tests/
+codex_portable.py
+pyproject.toml
+run_tests.*
+*.egg-info/

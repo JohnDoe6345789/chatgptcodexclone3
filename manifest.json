@@ -1,0 +1,35 @@
+{
+  "name": "ChatGPT Codex Clone 3",
+  "description": "Generated files manifest for cleanup and tracking",
+  "version": "1.0.0",
+  "generated_by": "generate_codex_project.py",
+  "files": [
+    "pyproject.toml",
+    "README.md",
+    ".gitignore",
+    "run_tests.py",
+    "run_tests.sh",
+    "run_tests.bat",
+    "codex_portable.py",
+    "tests/__init__.py",
+    "tests/test_config.py",
+    "tests/test_api.py",
+    "codex_clone/__init__.py",
+    "codex_clone/config.py",
+    "codex_clone/logging_utils.py",
+    "codex_clone/settings.py",
+    "codex_clone/api.py",
+    "codex_clone/backend_helper.py",
+    "codex_clone/backend.py",
+    "codex_clone/socket_backend.py"
+  ],
+  "directories": [
+    "codex_clone",
+    "tests"
+  ],
+  "logs": [
+    "generator.log",
+    "codex.log"
+  ],
+  "notes": "Run 'python cleanup.py' to remove all generated files and directories listed in this manifest."
+}
