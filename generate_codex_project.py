@@ -590,7 +590,7 @@ def send_chat(
             try:
                 error_body = exc.read().decode('utf-8')
                 logger.debug(f"Error response body: {error_body}")
-            except Exception:
+            except (UnicodeDecodeError, OSError):
                 pass
             
             if exc.code >= 500 and attempt < MAX_RETRIES - 1:

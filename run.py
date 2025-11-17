@@ -44,7 +44,7 @@ def check_optional_dependencies():
 
 
 def try_tkinter_gui():
-    """Try to show tkinter GUI for installation."""
+    """Try to show tkinter GUI for installation. Returns True/False or None if unavailable."""
     try:
         import tkinter as tk
         from tkinter import scrolledtext, messagebox
@@ -52,7 +52,7 @@ def try_tkinter_gui():
         missing_required = check_dependencies()
         
         if not missing_required:
-            return None
+            return True
         
         result = {"proceed": False}
         
@@ -156,14 +156,14 @@ def _do_tkinter_install(packages_dict):
 
 
 def try_ncurses_installer():
-    """Fallback ncurses-based installer for Linux."""
+    """Fallback ncurses-based installer for Linux. Returns True/False or None if unavailable."""
     try:
         import curses
         
         missing_required = check_dependencies()
         
         if not missing_required:
-            return False
+            return True
         
         def ncurses_main(stdscr):
             curses.curs_set(0)
@@ -203,7 +203,7 @@ def try_ncurses_installer():
         curses.wrapper(ncurses_main)
         return True
     
-    except (ImportError, Exception):
+    except ImportError:
         return None
 
 
@@ -259,15 +259,17 @@ def main():
     
     installer_succeeded = None
     
-    if sys.platform != "linux":
+    if sys.platform in ("win32", "darwin"):
         installer_succeeded = try_tkinter_gui()
         if installer_succeeded is None:
             print("Tkinter GUI not available, falling back to command-line installation.\n")
-    else:
+    elif sys.platform == "linux":
         print("Detected Linux environment.\n")
         installer_succeeded = try_ncurses_installer()
         if installer_succeeded is None:
             print("ncurses installation not available, falling back to command-line.\n")
+    else:
+        print(f"Unknown platform: {sys.platform}, using command-line installation.\n")
     
     if installer_succeeded is None or installer_succeeded is False:
         if not install_via_pip():

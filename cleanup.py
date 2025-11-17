@@ -6,6 +6,7 @@ Run: python cleanup.py
 
 import json
 import logging
+import shutil
 import sys
 from pathlib import Path
 from typing import List
@@ -53,8 +54,8 @@ def remove_files(files: List[str], base_dir: Path, logger: logging.Logger) -> tu
             if file_path.is_file():
                 file_path.unlink()
                 logger.info(f"Removed file: {relative_path}")
-            removed += 1
-        except Exception as exc:
+                removed += 1
+        except (OSError, PermissionError) as exc:
             logger.error(f"Failed to remove {relative_path}: {exc}")
             failed += 1
     
@@ -75,11 +76,10 @@ def remove_directories(directories: List[str], base_dir: Path, logger: logging.L
         
         try:
             if dir_path.is_dir():
-                import shutil
                 shutil.rmtree(dir_path)
                 logger.info(f"Removed directory: {relative_path}")
-            removed += 1
-        except Exception as exc:
+                removed += 1
+        except (OSError, PermissionError) as exc:
             logger.error(f"Failed to remove {relative_path}: {exc}")
             failed += 1
     
@@ -117,12 +117,11 @@ def remove_pycache(base_dir: Path, logger: logging.Logger) -> tuple[int, int]:
     for pycache_dir in base_dir.rglob("__pycache__"):
         if pycache_dir.is_dir():
             try:
-                import shutil
                 shutil.rmtree(pycache_dir)
                 rel_path = pycache_dir.relative_to(base_dir)
                 logger.info(f"Removed directory: {rel_path}")
                 removed += 1
-            except Exception as exc:
+            except (OSError, PermissionError) as exc:
                 logger.error(f"Failed to remove {pycache_dir}: {exc}")
                 failed += 1
     

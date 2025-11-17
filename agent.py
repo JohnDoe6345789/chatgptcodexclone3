@@ -7,7 +7,6 @@ Provides a convenient interface for git, grep, file analysis, and more
 import argparse
 import subprocess
 import sys
-import os
 from pathlib import Path
 from typing import Optional, List
 
@@ -22,11 +21,14 @@ class AgentHelper:
             print(f"[*] {description}")
         print(f"$ {' '.join(cmd)}\n")
         try:
-            result = subprocess.run(cmd, cwd=self.repo_root)
+            result = subprocess.run(cmd, cwd=self.repo_root, timeout=300)
             return result.returncode
         except FileNotFoundError:
             print(f"[!] Command not found: {cmd[0]}")
             return 1
+        except subprocess.TimeoutExpired:
+            print("[!] Command timed out after 300 seconds")
+            return 124
         except KeyboardInterrupt:
             print("\n[!] Interrupted")
             return 130
@@ -117,7 +119,7 @@ class AgentHelper:
                                 rel_path = file_path.relative_to(self.repo_root)
                                 print(f"{rel_path}:{line_num}: {line.rstrip()}")
                                 matches += 1
-                except Exception:
+                except (OSError, IOError):
                     pass
         
         if matches == 0:
@@ -146,7 +148,7 @@ class AgentHelper:
                         file_count += 1
                         if lines > 0:
                             print(f"{lines:6d} {file_path.relative_to(self.repo_root)}")
-                except Exception:
+                except (OSError, IOError):
                     pass
         
         print(f"\n{'-' * 50}")
