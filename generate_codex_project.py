@@ -245,6 +245,25 @@ DEFAULT_SYSTEM_PROMPT = (
 DEFAULT_TEMPERATURE = 0.2
 DEFAULT_MAX_TOKENS = 2048
 
+DEFAULT_BACKEND_LLAMA_HOST = "127.0.0.1"
+DEFAULT_BACKEND_LLAMA_PORT = 1234
+DEFAULT_BACKEND_PROCESS_TIMEOUT = 10
+DEFAULT_BACKEND_CONTEXT_SIZE = 8192
+
+DEFAULT_API_REQUEST_TIMEOUT = 120
+DEFAULT_API_MAX_MESSAGE_LENGTH = 10000
+DEFAULT_API_MAX_MESSAGES = 100
+DEFAULT_API_MAX_RETRIES = 3
+DEFAULT_API_INITIAL_BACKOFF = 1.0
+
+DEFAULT_SOCKET_HOST = "127.0.0.1"
+DEFAULT_SOCKET_PORT = 9876
+DEFAULT_SOCKET_MAX_WORKERS = 10
+DEFAULT_SOCKET_TIMEOUT = 1.0
+
+DEFAULT_LOG_MAX_BYTES = 10 * 1024 * 1024
+DEFAULT_LOG_BACKUP_COUNT = 5
+
 
 @dataclass
 class Config:
@@ -255,6 +274,25 @@ class Config:
     system_prompt: str
     temperature: float
     max_tokens: int
+    
+    backend_llama_host: str
+    backend_llama_port: int
+    backend_process_timeout: int
+    backend_context_size: int
+    
+    api_request_timeout: int
+    api_max_message_length: int
+    api_max_messages: int
+    api_max_retries: int
+    api_initial_backoff: float
+    
+    socket_host: str
+    socket_port: int
+    socket_max_workers: int
+    socket_timeout: float
+    
+    log_max_bytes: int
+    log_backup_count: int
     
     def validate(self) -> None:
         """Validate configuration values."""
@@ -270,6 +308,12 @@ class Config:
             raise ValueError(f"max_tokens must be >= 1, got {self.max_tokens}")
         if not self.system_prompt:
             raise ValueError("system_prompt cannot be empty")
+        if self.backend_llama_port < 1 or self.backend_llama_port > 65535:
+            raise ValueError(f"backend_llama_port must be 1-65535, got {self.backend_llama_port}")
+        if self.socket_port < 1 or self.socket_port > 65535:
+            raise ValueError(f"socket_port must be 1-65535, got {self.socket_port}")
+        if self.api_request_timeout < 1:
+            raise ValueError(f"api_request_timeout must be >= 1, got {self.api_request_timeout}")
         logger.debug("Configuration validation passed")
 
 
@@ -296,8 +340,40 @@ def load_config() -> Config:
     temperature_str = _get_env("CODEX_TEMPERATURE", str(saved_settings.get("temperature", DEFAULT_TEMPERATURE)))
     max_tokens_str = _get_env("CODEX_MAX_TOKENS", str(saved_settings.get("max_tokens", DEFAULT_MAX_TOKENS)))
     
+    backend_llama_host = _get_env("CODEX_BACKEND_LLAMA_HOST", saved_settings.get("backend_llama_host", DEFAULT_BACKEND_LLAMA_HOST))
+    backend_llama_port_str = _get_env("CODEX_BACKEND_LLAMA_PORT", str(saved_settings.get("backend_llama_port", DEFAULT_BACKEND_LLAMA_PORT)))
+    backend_process_timeout_str = _get_env("CODEX_BACKEND_PROCESS_TIMEOUT", str(saved_settings.get("backend_process_timeout", DEFAULT_BACKEND_PROCESS_TIMEOUT)))
+    backend_context_size_str = _get_env("CODEX_BACKEND_CONTEXT_SIZE", str(saved_settings.get("backend_context_size", DEFAULT_BACKEND_CONTEXT_SIZE)))
+    
+    api_request_timeout_str = _get_env("CODEX_API_REQUEST_TIMEOUT", str(saved_settings.get("api_request_timeout", DEFAULT_API_REQUEST_TIMEOUT)))
+    api_max_message_length_str = _get_env("CODEX_API_MAX_MESSAGE_LENGTH", str(saved_settings.get("api_max_message_length", DEFAULT_API_MAX_MESSAGE_LENGTH)))
+    api_max_messages_str = _get_env("CODEX_API_MAX_MESSAGES", str(saved_settings.get("api_max_messages", DEFAULT_API_MAX_MESSAGES)))
+    api_max_retries_str = _get_env("CODEX_API_MAX_RETRIES", str(saved_settings.get("api_max_retries", DEFAULT_API_MAX_RETRIES)))
+    api_initial_backoff_str = _get_env("CODEX_API_INITIAL_BACKOFF", str(saved_settings.get("api_initial_backoff", DEFAULT_API_INITIAL_BACKOFF)))
+    
+    socket_host = _get_env("CODEX_SOCKET_HOST", saved_settings.get("socket_host", DEFAULT_SOCKET_HOST))
+    socket_port_str = _get_env("CODEX_SOCKET_PORT", str(saved_settings.get("socket_port", DEFAULT_SOCKET_PORT)))
+    socket_max_workers_str = _get_env("CODEX_SOCKET_MAX_WORKERS", str(saved_settings.get("socket_max_workers", DEFAULT_SOCKET_MAX_WORKERS)))
+    socket_timeout_str = _get_env("CODEX_SOCKET_TIMEOUT", str(saved_settings.get("socket_timeout", DEFAULT_SOCKET_TIMEOUT)))
+    
+    log_max_bytes_str = _get_env("CODEX_LOG_MAX_BYTES", str(saved_settings.get("log_max_bytes", DEFAULT_LOG_MAX_BYTES)))
+    log_backup_count_str = _get_env("CODEX_LOG_BACKUP_COUNT", str(saved_settings.get("log_backup_count", DEFAULT_LOG_BACKUP_COUNT)))
+    
     temperature = float(temperature_str)
     max_tokens = int(max_tokens_str)
+    backend_llama_port = int(backend_llama_port_str)
+    backend_process_timeout = int(backend_process_timeout_str)
+    backend_context_size = int(backend_context_size_str)
+    api_request_timeout = int(api_request_timeout_str)
+    api_max_message_length = int(api_max_message_length_str)
+    api_max_messages = int(api_max_messages_str)
+    api_max_retries = int(api_max_retries_str)
+    api_initial_backoff = float(api_initial_backoff_str)
+    socket_port = int(socket_port_str)
+    socket_max_workers = int(socket_max_workers_str)
+    socket_timeout = float(socket_timeout_str)
+    log_max_bytes = int(log_max_bytes_str)
+    log_backup_count = int(log_backup_count_str)
     
     config = Config(
         base_url=base_url,
@@ -306,6 +382,21 @@ def load_config() -> Config:
         system_prompt=system_prompt,
         temperature=temperature,
         max_tokens=max_tokens,
+        backend_llama_host=backend_llama_host,
+        backend_llama_port=backend_llama_port,
+        backend_process_timeout=backend_process_timeout,
+        backend_context_size=backend_context_size,
+        api_request_timeout=api_request_timeout,
+        api_max_message_length=api_max_message_length,
+        api_max_messages=api_max_messages,
+        api_max_retries=api_max_retries,
+        api_initial_backoff=api_initial_backoff,
+        socket_host=socket_host,
+        socket_port=socket_port,
+        socket_max_workers=socket_max_workers,
+        socket_timeout=socket_timeout,
+        log_max_bytes=log_max_bytes,
+        log_backup_count=log_backup_count,
     )
     
     config.validate()
@@ -325,6 +416,21 @@ def save_config(config: Config) -> None:
         "system_prompt": config.system_prompt,
         "temperature": config.temperature,
         "max_tokens": config.max_tokens,
+        "backend_llama_host": config.backend_llama_host,
+        "backend_llama_port": config.backend_llama_port,
+        "backend_process_timeout": config.backend_process_timeout,
+        "backend_context_size": config.backend_context_size,
+        "api_request_timeout": config.api_request_timeout,
+        "api_max_message_length": config.api_max_message_length,
+        "api_max_messages": config.api_max_messages,
+        "api_max_retries": config.api_max_retries,
+        "api_initial_backoff": config.api_initial_backoff,
+        "socket_host": config.socket_host,
+        "socket_port": config.socket_port,
+        "socket_max_workers": config.socket_max_workers,
+        "socket_timeout": config.socket_timeout,
+        "log_max_bytes": config.log_max_bytes,
+        "log_backup_count": config.log_backup_count,
     }
     settings.save_settings(saved_settings_dict)
     logger.info("Configuration saved")
@@ -1405,6 +1511,7 @@ try:
         QTabWidget,
         QStatusBar,
         QGroupBox,
+        QScrollArea,
     )
     from PyQt6.QtCore import QThread, pyqtSignal, Qt
     from PyQt6.QtGui import QFont, QTextCursor, QPalette, QColor
@@ -1574,7 +1681,31 @@ class CodexWindow(QMainWindow):
     
     def _create_settings_tab(self) -> QWidget:
         tab = QWidget()
-        layout = QVBoxLayout(tab)
+        outer_layout = QVBoxLayout(tab)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+        
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("""
+            QScrollArea {
+                background: #36393f;
+                border: none;
+            }
+            QScrollBar:vertical {
+                background: #2c2f33;
+                width: 12px;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:vertical {
+                background: #5865f2;
+                border-radius: 6px;
+                min-height: 20px;
+            }
+        """)
+        
+        scroll_widget = QWidget()
+        layout = QVBoxLayout(scroll_widget)
         layout.setContentsMargins(15, 15, 15, 15)
         layout.setSpacing(10)
         
@@ -1846,7 +1977,232 @@ class CodexWindow(QMainWindow):
         config_group.setLayout(config_layout)
         layout.addWidget(config_group)
         
+        backend_group = QGroupBox("Backend Llama Settings")
+        backend_group.setStyleSheet("""
+            QGroupBox {
+                font-size: 14px;
+                font-weight: bold;
+                color: #ffffff;
+                border: 2px solid #5865f2;
+                border-radius: 6px;
+                margin-top: 12px;
+                padding-top: 12px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
+        backend_layout = QFormLayout()
+        backend_layout.setSpacing(10)
+        
+        self._backend_llama_host_input = QLineEdit()
+        self._backend_llama_host_input.setStyleSheet(self._get_lineedit_style())
+        backend_layout.addRow("Llama Host:", self._backend_llama_host_input)
+        
+        port_layout = QHBoxLayout()
+        self._backend_llama_port_input = QSpinBox()
+        self._backend_llama_port_input.setMinimum(1)
+        self._backend_llama_port_input.setMaximum(65535)
+        self._backend_llama_port_input.setStyleSheet(self._get_spinbox_style())
+        port_layout.addWidget(self._backend_llama_port_input)
+        port_layout.addStretch()
+        backend_layout.addRow("Llama Port:", port_layout)
+        
+        timeout_layout = QHBoxLayout()
+        self._backend_process_timeout_input = QSpinBox()
+        self._backend_process_timeout_input.setMinimum(1)
+        self._backend_process_timeout_input.setMaximum(300)
+        self._backend_process_timeout_input.setStyleSheet(self._get_spinbox_style())
+        timeout_layout.addWidget(self._backend_process_timeout_input)
+        timeout_layout.addStretch()
+        backend_layout.addRow("Process Timeout (s):", timeout_layout)
+        
+        context_layout = QHBoxLayout()
+        self._backend_context_size_input = QSpinBox()
+        self._backend_context_size_input.setMinimum(256)
+        self._backend_context_size_input.setMaximum(65536)
+        self._backend_context_size_input.setSingleStep(256)
+        self._backend_context_size_input.setStyleSheet(self._get_spinbox_style())
+        context_layout.addWidget(self._backend_context_size_input)
+        context_layout.addStretch()
+        backend_layout.addRow("Context Size:", context_layout)
+        
+        backend_group.setLayout(backend_layout)
+        layout.addWidget(backend_group)
+        
+        api_group = QGroupBox("API Advanced Settings")
+        api_group.setStyleSheet("""
+            QGroupBox {
+                font-size: 14px;
+                font-weight: bold;
+                color: #ffffff;
+                border: 2px solid #5865f2;
+                border-radius: 6px;
+                margin-top: 12px;
+                padding-top: 12px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
+        api_layout = QFormLayout()
+        api_layout.setSpacing(10)
+        
+        timeout_layout = QHBoxLayout()
+        self._api_request_timeout_input = QSpinBox()
+        self._api_request_timeout_input.setMinimum(1)
+        self._api_request_timeout_input.setMaximum(3600)
+        self._api_request_timeout_input.setStyleSheet(self._get_spinbox_style())
+        timeout_layout.addWidget(self._api_request_timeout_input)
+        timeout_layout.addStretch()
+        api_layout.addRow("Request Timeout (s):", timeout_layout)
+        
+        msg_len_layout = QHBoxLayout()
+        self._api_max_message_length_input = QSpinBox()
+        self._api_max_message_length_input.setMinimum(100)
+        self._api_max_message_length_input.setMaximum(1000000)
+        self._api_max_message_length_input.setSingleStep(100)
+        self._api_max_message_length_input.setStyleSheet(self._get_spinbox_style())
+        msg_len_layout.addWidget(self._api_max_message_length_input)
+        msg_len_layout.addStretch()
+        api_layout.addRow("Max Message Length:", msg_len_layout)
+        
+        msg_count_layout = QHBoxLayout()
+        self._api_max_messages_input = QSpinBox()
+        self._api_max_messages_input.setMinimum(1)
+        self._api_max_messages_input.setMaximum(10000)
+        self._api_max_messages_input.setStyleSheet(self._get_spinbox_style())
+        msg_count_layout.addWidget(self._api_max_messages_input)
+        msg_count_layout.addStretch()
+        api_layout.addRow("Max Messages:", msg_count_layout)
+        
+        retries_layout = QHBoxLayout()
+        self._api_max_retries_input = QSpinBox()
+        self._api_max_retries_input.setMinimum(1)
+        self._api_max_retries_input.setMaximum(100)
+        self._api_max_retries_input.setStyleSheet(self._get_spinbox_style())
+        retries_layout.addWidget(self._api_max_retries_input)
+        retries_layout.addStretch()
+        api_layout.addRow("Max Retries:", retries_layout)
+        
+        backoff_layout = QHBoxLayout()
+        self._api_initial_backoff_input = QDoubleSpinBox()
+        self._api_initial_backoff_input.setMinimum(0.1)
+        self._api_initial_backoff_input.setMaximum(60.0)
+        self._api_initial_backoff_input.setSingleStep(0.1)
+        self._api_initial_backoff_input.setStyleSheet(self._get_doublespinbox_style())
+        backoff_layout.addWidget(self._api_initial_backoff_input)
+        backoff_layout.addStretch()
+        api_layout.addRow("Initial Backoff (s):", backoff_layout)
+        
+        api_group.setLayout(api_layout)
+        layout.addWidget(api_group)
+        
+        socket_group = QGroupBox("Socket Settings")
+        socket_group.setStyleSheet("""
+            QGroupBox {
+                font-size: 14px;
+                font-weight: bold;
+                color: #ffffff;
+                border: 2px solid #5865f2;
+                border-radius: 6px;
+                margin-top: 12px;
+                padding-top: 12px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
+        socket_layout = QFormLayout()
+        socket_layout.setSpacing(10)
+        
+        self._socket_host_input = QLineEdit()
+        self._socket_host_input.setStyleSheet(self._get_lineedit_style())
+        socket_layout.addRow("Socket Host:", self._socket_host_input)
+        
+        sport_layout = QHBoxLayout()
+        self._socket_port_input = QSpinBox()
+        self._socket_port_input.setMinimum(1)
+        self._socket_port_input.setMaximum(65535)
+        self._socket_port_input.setStyleSheet(self._get_spinbox_style())
+        sport_layout.addWidget(self._socket_port_input)
+        sport_layout.addStretch()
+        socket_layout.addRow("Socket Port:", sport_layout)
+        
+        workers_layout = QHBoxLayout()
+        self._socket_max_workers_input = QSpinBox()
+        self._socket_max_workers_input.setMinimum(1)
+        self._socket_max_workers_input.setMaximum(1000)
+        self._socket_max_workers_input.setStyleSheet(self._get_spinbox_style())
+        workers_layout.addWidget(self._socket_max_workers_input)
+        workers_layout.addStretch()
+        socket_layout.addRow("Max Workers:", workers_layout)
+        
+        stimeout_layout = QHBoxLayout()
+        self._socket_timeout_input = QDoubleSpinBox()
+        self._socket_timeout_input.setMinimum(0.1)
+        self._socket_timeout_input.setMaximum(60.0)
+        self._socket_timeout_input.setSingleStep(0.1)
+        self._socket_timeout_input.setStyleSheet(self._get_doublespinbox_style())
+        stimeout_layout.addWidget(self._socket_timeout_input)
+        stimeout_layout.addStretch()
+        socket_layout.addRow("Socket Timeout (s):", stimeout_layout)
+        
+        socket_group.setLayout(socket_layout)
+        layout.addWidget(socket_group)
+        
+        log_group = QGroupBox("Logging Settings")
+        log_group.setStyleSheet("""
+            QGroupBox {
+                font-size: 14px;
+                font-weight: bold;
+                color: #ffffff;
+                border: 2px solid #5865f2;
+                border-radius: 6px;
+                margin-top: 12px;
+                padding-top: 12px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
+        log_layout = QFormLayout()
+        log_layout.setSpacing(10)
+        
+        bytes_layout = QHBoxLayout()
+        self._log_max_bytes_input = QSpinBox()
+        self._log_max_bytes_input.setMinimum(1024)
+        self._log_max_bytes_input.setMaximum(1000000000)
+        self._log_max_bytes_input.setSingleStep(1024*1024)
+        self._log_max_bytes_input.setStyleSheet(self._get_spinbox_style())
+        bytes_layout.addWidget(self._log_max_bytes_input)
+        bytes_layout.addStretch()
+        log_layout.addRow("Max Log Size (bytes):", bytes_layout)
+        
+        backup_layout = QHBoxLayout()
+        self._log_backup_count_input = QSpinBox()
+        self._log_backup_count_input.setMinimum(1)
+        self._log_backup_count_input.setMaximum(100)
+        self._log_backup_count_input.setStyleSheet(self._get_spinbox_style())
+        backup_layout.addWidget(self._log_backup_count_input)
+        backup_layout.addStretch()
+        log_layout.addRow("Log Backup Count:", backup_layout)
+        
+        log_group.setLayout(log_layout)
+        layout.addWidget(log_group)
+        
         layout.addStretch()
+        
+        scroll.setWidget(scroll_widget)
+        outer_layout.addWidget(scroll)
         
         self._load_settings_to_ui()
         
@@ -1966,6 +2322,45 @@ class CodexWindow(QMainWindow):
         except Exception:
             return hex_color
     
+    def _get_lineedit_style(self) -> str:
+        return """
+            QLineEdit {
+                background: #40444b;
+                color: #dcddde;
+                border: 1px solid #23272a;
+                border-radius: 4px;
+                padding: 8px;
+                font-size: 12px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #5865f2;
+            }
+        """
+    
+    def _get_spinbox_style(self) -> str:
+        return """
+            QSpinBox {
+                background: #40444b;
+                color: #dcddde;
+                border: 1px solid #23272a;
+                border-radius: 4px;
+                padding: 8px;
+                font-size: 12px;
+            }
+        """
+    
+    def _get_doublespinbox_style(self) -> str:
+        return """
+            QDoubleSpinBox {
+                background: #40444b;
+                color: #dcddde;
+                border: 1px solid #23272a;
+                border-radius: 4px;
+                padding: 8px;
+                font-size: 12px;
+            }
+        """
+    
     def _apply_dark_theme(self) -> None:
         self.setStyleSheet("""
             QMainWindow {
@@ -1982,7 +2377,16 @@ class CodexWindow(QMainWindow):
         self._status_bar.showMessage(status_text)
     
     def _load_settings_to_ui(self) -> None:
-        from codex_clone.config import load_config, DEFAULT_BASE_URL, DEFAULT_MODEL, DEFAULT_SYSTEM_PROMPT, DEFAULT_TEMPERATURE, DEFAULT_MAX_TOKENS
+        from codex_clone.config import (
+            load_config, DEFAULT_BASE_URL, DEFAULT_MODEL, DEFAULT_SYSTEM_PROMPT, 
+            DEFAULT_TEMPERATURE, DEFAULT_MAX_TOKENS, DEFAULT_BACKEND_LLAMA_HOST,
+            DEFAULT_BACKEND_LLAMA_PORT, DEFAULT_BACKEND_PROCESS_TIMEOUT, 
+            DEFAULT_BACKEND_CONTEXT_SIZE, DEFAULT_API_REQUEST_TIMEOUT, 
+            DEFAULT_API_MAX_MESSAGE_LENGTH, DEFAULT_API_MAX_MESSAGES,
+            DEFAULT_API_MAX_RETRIES, DEFAULT_API_INITIAL_BACKOFF, DEFAULT_SOCKET_HOST,
+            DEFAULT_SOCKET_PORT, DEFAULT_SOCKET_MAX_WORKERS, DEFAULT_SOCKET_TIMEOUT,
+            DEFAULT_LOG_MAX_BYTES, DEFAULT_LOG_BACKUP_COUNT
+        )
         
         config = load_config()
         
@@ -1993,10 +2397,37 @@ class CodexWindow(QMainWindow):
         self._max_tokens_input.setValue(int(config.max_tokens or DEFAULT_MAX_TOKENS))
         self._system_prompt_input.setText(config.system_prompt or DEFAULT_SYSTEM_PROMPT)
         
+        self._backend_llama_host_input.setText(config.backend_llama_host or DEFAULT_BACKEND_LLAMA_HOST)
+        self._backend_llama_port_input.setValue(int(config.backend_llama_port or DEFAULT_BACKEND_LLAMA_PORT))
+        self._backend_process_timeout_input.setValue(int(config.backend_process_timeout or DEFAULT_BACKEND_PROCESS_TIMEOUT))
+        self._backend_context_size_input.setValue(int(config.backend_context_size or DEFAULT_BACKEND_CONTEXT_SIZE))
+        
+        self._api_request_timeout_input.setValue(int(config.api_request_timeout or DEFAULT_API_REQUEST_TIMEOUT))
+        self._api_max_message_length_input.setValue(int(config.api_max_message_length or DEFAULT_API_MAX_MESSAGE_LENGTH))
+        self._api_max_messages_input.setValue(int(config.api_max_messages or DEFAULT_API_MAX_MESSAGES))
+        self._api_max_retries_input.setValue(int(config.api_max_retries or DEFAULT_API_MAX_RETRIES))
+        self._api_initial_backoff_input.setValue(float(config.api_initial_backoff or DEFAULT_API_INITIAL_BACKOFF))
+        
+        self._socket_host_input.setText(config.socket_host or DEFAULT_SOCKET_HOST)
+        self._socket_port_input.setValue(int(config.socket_port or DEFAULT_SOCKET_PORT))
+        self._socket_max_workers_input.setValue(int(config.socket_max_workers or DEFAULT_SOCKET_MAX_WORKERS))
+        self._socket_timeout_input.setValue(float(config.socket_timeout or DEFAULT_SOCKET_TIMEOUT))
+        
+        self._log_max_bytes_input.setValue(int(config.log_max_bytes or DEFAULT_LOG_MAX_BYTES))
+        self._log_backup_count_input.setValue(int(config.log_backup_count or DEFAULT_LOG_BACKUP_COUNT))
+        
         logger.info("Settings loaded to UI")
     
     def _on_load_defaults(self) -> None:
-        from codex_clone.config import DEFAULT_BASE_URL, DEFAULT_MODEL, DEFAULT_SYSTEM_PROMPT, DEFAULT_TEMPERATURE, DEFAULT_MAX_TOKENS
+        from codex_clone.config import (
+            DEFAULT_BASE_URL, DEFAULT_MODEL, DEFAULT_SYSTEM_PROMPT, DEFAULT_TEMPERATURE, 
+            DEFAULT_MAX_TOKENS, DEFAULT_BACKEND_LLAMA_HOST, DEFAULT_BACKEND_LLAMA_PORT,
+            DEFAULT_BACKEND_PROCESS_TIMEOUT, DEFAULT_BACKEND_CONTEXT_SIZE,
+            DEFAULT_API_REQUEST_TIMEOUT, DEFAULT_API_MAX_MESSAGE_LENGTH,
+            DEFAULT_API_MAX_MESSAGES, DEFAULT_API_MAX_RETRIES, DEFAULT_API_INITIAL_BACKOFF,
+            DEFAULT_SOCKET_HOST, DEFAULT_SOCKET_PORT, DEFAULT_SOCKET_MAX_WORKERS,
+            DEFAULT_SOCKET_TIMEOUT, DEFAULT_LOG_MAX_BYTES, DEFAULT_LOG_BACKUP_COUNT
+        )
         
         self._base_url_input.setText(DEFAULT_BASE_URL)
         self._api_key_input.setText("")
@@ -2004,6 +2435,25 @@ class CodexWindow(QMainWindow):
         self._temperature_input.setValue(DEFAULT_TEMPERATURE)
         self._max_tokens_input.setValue(DEFAULT_MAX_TOKENS)
         self._system_prompt_input.setText(DEFAULT_SYSTEM_PROMPT)
+        
+        self._backend_llama_host_input.setText(DEFAULT_BACKEND_LLAMA_HOST)
+        self._backend_llama_port_input.setValue(DEFAULT_BACKEND_LLAMA_PORT)
+        self._backend_process_timeout_input.setValue(DEFAULT_BACKEND_PROCESS_TIMEOUT)
+        self._backend_context_size_input.setValue(DEFAULT_BACKEND_CONTEXT_SIZE)
+        
+        self._api_request_timeout_input.setValue(DEFAULT_API_REQUEST_TIMEOUT)
+        self._api_max_message_length_input.setValue(DEFAULT_API_MAX_MESSAGE_LENGTH)
+        self._api_max_messages_input.setValue(DEFAULT_API_MAX_MESSAGES)
+        self._api_max_retries_input.setValue(DEFAULT_API_MAX_RETRIES)
+        self._api_initial_backoff_input.setValue(DEFAULT_API_INITIAL_BACKOFF)
+        
+        self._socket_host_input.setText(DEFAULT_SOCKET_HOST)
+        self._socket_port_input.setValue(DEFAULT_SOCKET_PORT)
+        self._socket_max_workers_input.setValue(DEFAULT_SOCKET_MAX_WORKERS)
+        self._socket_timeout_input.setValue(DEFAULT_SOCKET_TIMEOUT)
+        
+        self._log_max_bytes_input.setValue(DEFAULT_LOG_MAX_BYTES)
+        self._log_backup_count_input.setValue(DEFAULT_LOG_BACKUP_COUNT)
         
         self._append_chat_output("[System] Default settings loaded\\n", "#faa61a")
         logger.info("Default settings loaded")
@@ -2018,6 +2468,21 @@ class CodexWindow(QMainWindow):
             system_prompt=self._system_prompt_input.toPlainText(),
             temperature=float(self._temperature_input.value()),
             max_tokens=int(self._max_tokens_input.value()),
+            backend_llama_host=self._backend_llama_host_input.text() or "127.0.0.1",
+            backend_llama_port=int(self._backend_llama_port_input.value()),
+            backend_process_timeout=int(self._backend_process_timeout_input.value()),
+            backend_context_size=int(self._backend_context_size_input.value()),
+            api_request_timeout=int(self._api_request_timeout_input.value()),
+            api_max_message_length=int(self._api_max_message_length_input.value()),
+            api_max_messages=int(self._api_max_messages_input.value()),
+            api_max_retries=int(self._api_max_retries_input.value()),
+            api_initial_backoff=float(self._api_initial_backoff_input.value()),
+            socket_host=self._socket_host_input.text() or "127.0.0.1",
+            socket_port=int(self._socket_port_input.value()),
+            socket_max_workers=int(self._socket_max_workers_input.value()),
+            socket_timeout=float(self._socket_timeout_input.value()),
+            log_max_bytes=int(self._log_max_bytes_input.value()),
+            log_backup_count=int(self._log_backup_count_input.value()),
         )
         
         save_config(config)
@@ -2044,7 +2509,9 @@ class CodexWindow(QMainWindow):
     
     def _start_socket_client(self) -> None:
         logger.info("Starting socket client thread...")
-        self._client = SocketClient("127.0.0.1", 9876)
+        socket_host = self._socket_host_input.text() or "127.0.0.1"
+        socket_port = int(self._socket_port_input.value())
+        self._client = SocketClient(socket_host, socket_port)
         self._client.message_received.connect(self._on_message_received)
         self._client.connection_status.connect(self._on_connection_status)
         self._client.start()
