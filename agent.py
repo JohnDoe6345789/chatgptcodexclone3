@@ -64,6 +64,14 @@ class AgentHelper:
         """Commit staged changes"""
         return self.run_command(["git", "commit", "-m", message], "Git Commit")
 
+    def git_commit_multiline(self, *lines: str) -> int:
+        """Commit staged changes with multi-line message"""
+        if not lines:
+            print("Usage: git-commit-multiline <line1> [line2] [line3] ...")
+            return 1
+        message = "\n".join(lines)
+        return self.run_command(["git", "commit", "-m", message], "Git Commit (multiline)")
+
     def git_push(self, remote: str = "origin", branch: str = None) -> int:
         """Push commits to remote"""
         cmd = ["git", "push", remote]
@@ -219,6 +227,7 @@ GIT COMMANDS
   git-branch              List all branches
   git-add [files]         Stage files for commit (default: all)
   git-commit <message>    Commit staged changes
+  git-commit-multiline <lines...> Commit with multi-line message
   git-push [remote] [branch] Push to remote (default: origin)
   commit-push <message> [remote] [branch] Commit and push in one operation
   git-rm [files] [--cached] Remove files from git (--cached keeps local files)
@@ -241,6 +250,7 @@ UTILITIES
 EXAMPLES:
   python agent.py git-status
   python agent.py git-rm --cached
+  python agent.py git-commit-multiline "Fix bug" "Add tests" "Update docs"
   python agent.py commit-push "Fixed issue X"
   python agent.py grep-files "def " py
   python agent.py count-lines py
@@ -284,6 +294,7 @@ def main():
         "git_branch": lambda: agent.git_branch(),
         "git_add": lambda: agent.git_add(args[0] if args else "."),
         "git_commit": lambda: agent.git_commit(args[0]) if args else print("Usage: git-commit <message>"),
+        "git_commit_multiline": lambda: agent.git_commit_multiline(*args) if args else print("Usage: git-commit-multiline <line1> [line2] ..."),
         "git_push": lambda: agent.git_push(args[0] if args else "origin", args[1] if len(args) > 1 else None),
         "commit_push": lambda: agent.commit_push(args[0], args[1] if len(args) > 1 else "origin", args[2] if len(args) > 2 else None) if args else print("Usage: commit-push <message> [remote] [branch]"),
         "git_rm": lambda: agent.git_rm(args[0] if args else None, "--cached" in args or "-c" in args),
