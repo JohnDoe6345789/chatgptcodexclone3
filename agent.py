@@ -70,6 +70,28 @@ class AgentHelper:
         desc = f"Git Push to {remote}" + (f" ({branch})" if branch else "")
         return self.run_command(cmd, desc)
 
+    def git_rm(self, files: str = None, cached: bool = False) -> int:
+        """Remove files from git tracking"""
+        if not files:
+            files = " ".join([
+                "codex_clone/",
+                "tests/",
+                "codex_portable.py",
+                "pyproject.toml",
+                "run_tests.py",
+                "run_tests.sh",
+                "run_tests.bat"
+            ])
+        
+        cmd = ["git", "rm"]
+        if cached:
+            cmd.append("--cached")
+        cmd.append("-r")
+        cmd.extend(files.split())
+        
+        desc = f"Git Remove ({files})" + (" (cached)" if cached else "")
+        return self.run_command(cmd, desc)
+
     def grep_files(self, pattern: str, extensions: Optional[str] = None) -> int:
         """Search for pattern in files"""
         print(f"[*] Search for '{pattern}' in {extensions or 'all'} files\n")
@@ -177,6 +199,7 @@ GIT COMMANDS
   git-add [files]         Stage files for commit (default: all)
   git-commit <message>    Commit staged changes
   git-push [remote] [branch] Push to remote (default: origin)
+  git-rm [files] [--cached] Remove files from git (--cached keeps local files)
 
 SEARCH & ANALYSIS
   grep <pattern>          Search pattern in all files
@@ -194,6 +217,7 @@ UTILITIES
 
 EXAMPLES:
   python agent.py git-status
+  python agent.py git-rm --cached
   python agent.py grep-files "def " py
   python agent.py count-lines py
   python agent.py list-files py 2
@@ -237,6 +261,7 @@ def main():
         "git_add": lambda: agent.git_add(args[0] if args else "."),
         "git_commit": lambda: agent.git_commit(args[0]) if args else print("Usage: git-commit <message>"),
         "git_push": lambda: agent.git_push(args[0] if args else "origin", args[1] if len(args) > 1 else None),
+        "git_rm": lambda: agent.git_rm(args[0] if args else None, "--cached" in args or "-c" in args),
         "grep_files": lambda: agent.grep_files(args[0], args[1] if len(args) > 1 else None) if args else print("Usage: grep-files <pattern> [extension]"),
         "count_lines": lambda: agent.count_lines(args[0] if args else None),
         "list_files": lambda: agent.list_files(args[0] if args else None, int(args[1]) if len(args) > 1 else 3),
