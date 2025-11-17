@@ -570,6 +570,9 @@ def send_chat(
     logger.info("=" * 80)
     logger.info(f"Starting chat request with {len(messages)} messages")
     
+    payload = _build_payload(messages, config)
+    request = _build_request(payload, config)
+    
     start_time = time.time()
     last_error = None
     backoff = INITIAL_BACKOFF
@@ -701,7 +704,7 @@ def ensure_huggingface_hub() -> bool:
         logger.info(f"pip install completed in {elapsed:.2f} seconds (return code: {result.returncode})")
         
         if result.stdout:
-            for line in result.stdout.split('\\n')[-20:]:
+            for line in result.stdout.split('\n')[-20:]:
                 if line.strip():
                     logger.debug(f"  {line}")
         
@@ -711,7 +714,7 @@ def ensure_huggingface_hub() -> bool:
         else:
             logger.warning(f"pip install returned non-zero code: {result.returncode}")
             if result.stderr:
-                for line in result.stderr.split('\\n')[-10:]:
+                for line in result.stderr.split('\n')[-10:]:
                     if line.strip():
                         logger.error(f"  {line}")
             
@@ -1191,7 +1194,7 @@ class SocketBackendServer:
         
         def send(data: dict[str, Any]) -> None:
             try:
-                message = json.dumps(data) + "\\n"
+                message = json.dumps(data) + "\n"
                 conn.sendall(message.encode("utf-8"))
                 logger.debug(f"[Client {client_id}] Sent: {data.get('type', '?')}")
             except Exception as exc:
@@ -1212,8 +1215,8 @@ class SocketBackendServer:
                 
                 buffer += chunk
                 
-                while "\\n" in buffer:
-                    line, buffer = buffer.split("\\n", 1)
+                while "\n" in buffer:
+                    line, buffer = buffer.split("\n", 1)
                     line = line.strip()
                     
                     if not line:
@@ -1359,8 +1362,8 @@ class SocketClient(QThread):
                     
                     buffer += chunk
                     
-                    while "\\n" in buffer:
-                        line, buffer = buffer.split("\\n", 1)
+                    while "\n" in buffer:
+                        line, buffer = buffer.split("\n", 1)
                         line = line.strip()
                         
                         if not line:
