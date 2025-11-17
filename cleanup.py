@@ -86,12 +86,13 @@ def remove_directories(directories: List[str], base_dir: Path, logger: logging.L
     return removed, failed
 
 
-def remove_logs(base_dir: Path, logger: logging.Logger) -> tuple[int, int]:
+def remove_logs(base_dir: Path, logger: logging.Logger, log_files: List[str] = None) -> tuple[int, int]:
     """Remove generated log files."""
     removed = 0
     failed = 0
     
-    log_files = ["generator.log", "codex.log", "cleanup.log"]
+    if log_files is None:
+        log_files = ["generator.log", "codex.log", "cleanup.log"]
     
     for log_file in log_files:
         log_path = base_dir / log_file
@@ -169,7 +170,7 @@ def main() -> int:
     total_failed += failed
     
     logger.info("\nRemoving log files...")
-    removed, failed = remove_logs(base_dir, logger)
+    removed, failed = remove_logs(base_dir, logger, manifest.get("logs"))
     total_removed += removed
     total_failed += failed
     
