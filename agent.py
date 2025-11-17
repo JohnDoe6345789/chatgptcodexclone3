@@ -261,7 +261,7 @@ def main():
     agent = AgentHelper()
 
     command = parsed_args.command.lower().replace("-", "_")
-    args = parsed_args.args
+    args = [arg.strip('"\'') for arg in parsed_args.args]
 
     commands = {
         "git_status": lambda: agent.git_status(),
